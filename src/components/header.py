@@ -43,9 +43,8 @@ def header_home():
     with btn_col:
         if logged_in:
             if st.button("Logout", key="nav_logout_btn", use_container_width=True):
-                st.session_state['logged_in'] = False
-                st.session_state['user_role'] = None
-                st.session_state['username'] = None
+                for key in ['logged_in', 'user_role', 'user_id', 'username', 'profile']:
+                    st.session_state[key] = False if key == 'logged_in' else None
                 st.session_state['page'] = 'home'
                 st.rerun()
         else:

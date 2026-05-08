@@ -17,8 +17,10 @@ def init_state():
     defaults = {
         'page': 'home',           # home | login | register_student | register_teacher | student_dashboard | teacher_dashboard
         'logged_in': False,
-        'user_role': None,        # student | teacher
-        'username': None,
+        'user_role': None,        # student | teacher | admin
+        'user_id': None,          # user_id from users table
+        'username': None,         # display name
+        'profile': None,          # full profile dict from teachers/students table
         'transition': False,      # triggers fade animation on page change
     }
     for k, v in defaults.items():

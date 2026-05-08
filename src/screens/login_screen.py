@@ -1,10 +1,12 @@
 import streamlit as st
 from src.ui.styles import apply_custom_css
+from src.database.auth import login
+
 
 def login_screen():
     apply_custom_css()
 
-    # No navbar — just a back button at the top
+    # Back to home — top-left
     b1, _, _ = st.columns([1, 3, 1])
     with b1:
         if st.button("← Home", key="login_back_home"):
@@ -23,14 +25,16 @@ def login_screen():
             </div>
         """, unsafe_allow_html=True)
 
-        st.markdown('<p style="color: #999; font-size: 0.85rem; margin-bottom: 0.3rem; font-family: Poppins, sans-serif;">Username</p>', unsafe_allow_html=True)
-        username = st.text_input(
-            "Username",
-            placeholder="Enter your username",
+        # Email field
+        st.markdown('<p style="color: #999; font-size: 0.85rem; margin-bottom: 0.3rem; font-family: Poppins, sans-serif;">Email</p>', unsafe_allow_html=True)
+        email = st.text_input(
+            "Email",
+            placeholder="Enter your email",
             label_visibility="collapsed",
-            key="login_username"
+            key="login_email"
         )
 
+        # Password field
         st.markdown('<p style="color: #999; font-size: 0.85rem; margin-bottom: 0.3rem; margin-top: 1rem; font-family: Poppins, sans-serif;">Password</p>', unsafe_allow_html=True)
         password = st.text_input(
             "Password",
@@ -42,18 +46,36 @@ def login_screen():
 
         st.write("")
 
+        # Sign In button
         if st.button("Sign In  →", key="btn_sign_in", use_container_width=True, type="primary"):
-            if username and password:
-                # UI only — role will be fetched from Supabase later
-                st.session_state['logged_in'] = True
-                st.session_state['username'] = username
-                st.session_state['user_role'] = 'student'
-                st.session_state['page'] = 'student_dashboard'
-                st.session_state['transition'] = True
-                st.rerun()
-            else:
+            if not email or not password:
                 st.warning("Please fill in all fields.")
+            else:
+                with st.spinner("Signing in..."):
+                    result = login(email, password)
 
+                if result["success"]:
+                    # Store auth state
+                    st.session_state['logged_in'] = True
+                    st.session_state['user_id'] = result['user_id']
+                    st.session_state['user_role'] = result['role']
+                    st.session_state['profile'] = result['profile']
+                    st.session_state['username'] = result['profile']['name'] if result['profile'] else email
+
+                    # Route to correct dashboard
+                    if result['role'] == 'teacher':
+                        st.session_state['page'] = 'teacher_dashboard'
+                    elif result['role'] == 'student':
+                        st.session_state['page'] = 'student_dashboard'
+                    else:
+                        st.session_state['page'] = 'home'
+
+                    st.session_state['transition'] = True
+                    st.rerun()
+                else:
+                    st.error(result['message'])
+
+        # Registration links
         st.write("")
         st.markdown("""
             <div style="text-align: center; margin-top: 0.5rem;">

@@ -12,3 +12,6 @@ segno
 pillow
 
 streamlit
+webrtcvad-wheels
+librosa
+resemblyzer

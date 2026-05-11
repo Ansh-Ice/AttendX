@@ -13,6 +13,8 @@ from src.database.db import (
     create_student,
     get_teacher_by_user_id,
     get_student_by_user_id,
+    update_student_embeddings,
+    check_face_exists,
 )
 
 
@@ -100,6 +102,95 @@ def signup(name: str, email: str, password: str, confirm_password: str, role: st
             "success": True,
             "message": f"{role.capitalize()} account created successfully!",
             "data": result.get(profile_key, {})
+        }
+
+    except Exception as e:
+        return {"success": False, "message": f"Database error: {str(e)}"}
+
+
+# ----------------------------
+# STUDENT SIGNUP WITH BIOMETRICS
+# ----------------------------
+
+def signup_student_with_biometrics(
+    name: str,
+    email: str,
+    password: str,
+    confirm_password: str,
+    face_embedding: list,
+    voice_embedding: list
+) -> dict:
+    """
+    Register a student with face and voice biometric data.
+
+    Flow:
+        1. Validate form fields
+        2. Check if face already exists in database
+        3. Create user + student record
+        4. Store face & voice embeddings
+
+    Returns:
+        {
+            "success": True/False,
+            "message": "...",
+            "data": { student profile dict }
+        }
+    """
+    # 1. Validate form fields
+    validation_err = _validate_signup_fields(name, email, password, confirm_password)
+    if validation_err:
+        return {"success": False, "message": validation_err}
+
+    # 2. Validate biometric data is present
+    if not face_embedding:
+        return {"success": False, "message": "Face data is required. Please capture your photo."}
+    if not voice_embedding:
+        return {"success": False, "message": "Voice data is required. Please record your audio."}
+
+    # 3. Normalize inputs
+    email = email.strip().lower()
+    name = name.strip()
+
+    # 4. Check if this face is already registered
+    try:
+        face_check = check_face_exists(face_embedding)
+        if face_check["exists"]:
+            existing = face_check["student"]
+            return {
+                "success": False,
+                "message": f"This face is already registered to '{existing.get('name', 'another student')}'."
+            }
+    except Exception as e:
+        return {"success": False, "message": f"Face verification error: {str(e)}"}
+
+    # 5. Create user + student record (through normal flow)
+    try:
+        result = create_student(name, email, password)
+        if not result["success"]:
+            return {"success": False, "message": result.get("message", "Registration failed.")}
+
+        student_data = result["student"]
+        student_id = student_data["student_id"]
+
+        # 6. Store biometric embeddings
+        embed_result = update_student_embeddings(
+            student_id=student_id,
+            face_embedding=face_embedding,
+            voice_embedding=voice_embedding
+        )
+
+        if not embed_result["success"]:
+            # Account created but embeddings failed — partial success
+            return {
+                "success": True,
+                "message": "Account created, but biometric data could not be saved. Please contact admin.",
+                "data": student_data
+            }
+
+        return {
+            "success": True,
+            "message": "Student account created with biometric data!",
+            "data": embed_result["student"]
         }
 
     except Exception as e:

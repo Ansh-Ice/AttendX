@@ -1,6 +1,7 @@
 import streamlit as st
 from src.ui.styles import apply_custom_css
 from src.database.auth import login
+from src.components.footer import render_footer
 
 
 def login_screen():
@@ -94,3 +95,6 @@ def login_screen():
             if st.button("Register as Teacher", key="login_to_reg_t", use_container_width=True):
                 st.session_state['page'] = 'register_teacher'
                 st.rerun()
+
+    # --- Footer ---
+    render_footer()

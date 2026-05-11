@@ -133,3 +133,45 @@ def create_admin(email: str, password: str) -> dict:
 def get_all_students():
     res = supabase.table('students').select('*').execute()
     return res.data
+
+
+# ----------------------------
+# UPDATE STUDENT EMBEDDINGS
+# ----------------------------
+
+def update_student_embeddings(student_id: int, face_embedding: list = None, voice_embedding: list = None) -> dict:
+    """Update face and/or voice embeddings for a student."""
+    update_data = {}
+    if face_embedding is not None:
+        update_data['face_embedding'] = face_embedding
+    if voice_embedding is not None:
+        update_data['voice_embedding'] = voice_embedding
+
+    if not update_data:
+        return {"success": False, "message": "No embedding data provided."}
+
+    try:
+        res = supabase.table('students').update(update_data).eq('student_id', student_id).execute()
+        if not res.data:
+            return {"success": False, "message": "Failed to update embeddings."}
+        return {"success": True, "student": res.data[0]}
+    except Exception as e:
+        return {"success": False, "message": f"Database error: {str(e)}"}
+
+
+def check_face_exists(new_embedding: list, threshold: float = 0.6) -> dict:
+    """Check if a face embedding already exists in the database.
+    Returns the matching student if found, None otherwise."""
+    import numpy as np
+    students = get_all_students()
+    if not students:
+        return {"exists": False, "student": None}
+
+    for student in students:
+        stored = student.get('face_embedding')
+        if stored:
+            distance = np.linalg.norm(np.array(new_embedding) - np.array(stored))
+            if distance <= threshold:
+                return {"exists": True, "student": student}
+
+    return {"exists": False, "student": None}

@@ -1,35 +1,39 @@
 import streamlit as st
-import base64
-import os
 
-def _b64(path):
-    with open(path, 'rb') as f:
-        return base64.b64encode(f.read()).decode()
-
-def footer():
-    logo_path = os.path.join("src", "assets", "logo_light.png")
-    if not os.path.exists(logo_path):
-        logo_path = os.path.join("src", "assets", "logo.png")
-
-    try:
-        img_src = f"data:image/png;base64,{_b64(logo_path)}"
-    except Exception:
-        img_src = ""
-
-    st.markdown(f"""
-        <div class="site-footer">
-            <div class="footer-logo">
-                <img src="{img_src}" alt="AttendX">
+def render_footer():
+    """Renders a common footer for all screens with some spacing before it."""
+    st.markdown("""
+        <style>
+            .common-footer {
+                margin-top: 4rem;
+                padding: 1.5rem 0;
+                border-top: 1px solid rgba(255,255,255,0.06);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+            .common-footer-left {
+                font-size: 0.75rem;
+                color: #555;
+                font-family: 'Inter', sans-serif;
+            }
+            .common-footer-right {
+                font-size: 0.75rem;
+                color: #444;
+                font-family: 'Inter', sans-serif;
+            }
+            .common-footer-right span {
+                color: #D4AF37;
+            }
+        </style>
+        <div class="common-footer">
+            <div class="common-footer-left">
+                © 2026 AttendX · AI-Powered Attendance System
             </div>
-            <div class="footer-tagline">
-                <span class="footer-tagline-icon">✅</span>
-                <span>Built for Accuracy. Designed for Trust.<br>Empowering Education with AI.</span>
-            </div>
-            <div class="footer-socials">
-                <a href="#" class="social-icon">f</a>
-                <a href="#" class="social-icon">📷</a>
-                <a href="#" class="social-icon">𝕏</a>
-                <a href="#" class="social-icon">in</a>
+            <div class="common-footer-right">
+                Built with <span>♦</span> for Education
             </div>
         </div>
     """, unsafe_allow_html=True)

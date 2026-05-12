@@ -89,9 +89,15 @@ def register_screen():
 
             # --- FACE CAPTURE ---
             st.markdown('<p style="color: #999; font-size: 0.85rem; margin-bottom: 0.3rem; font-family: Poppins, sans-serif;">📸 Face Capture</p>', unsafe_allow_html=True)
-            st.caption("Position your face clearly in the center. Only one face should be visible.")
+            st.caption("Provide a clear photo of your face. Only one face should be visible.")
 
-            photo_source = st.camera_input("Capture your face", key="reg_face_capture", label_visibility="collapsed")
+            face_input_method = st.radio("Input Method", options=["Use Camera", "Upload Image"], horizontal=True, label_visibility="collapsed")
+            
+            photo_source = None
+            if face_input_method == "Use Camera":
+                photo_source = st.camera_input("Capture your face", key="reg_face_capture", label_visibility="collapsed")
+            else:
+                photo_source = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"], key="reg_face_upload", label_visibility="collapsed")
 
             # Process face capture
             face_embedding = None
@@ -148,7 +154,7 @@ def register_screen():
         st.write("")
 
         # ---- SUBMIT ----
-        if st.button(f"Create {role_label} Account  →", key="btn_register", use_container_width=True, type="primary"):
+        if st.button(f"Create {role_label} Account  →", key="btn_register", width="stretch", type="primary"):
             with st.spinner("Creating your account..."):
                 if is_student:
                     # Get embeddings from session state (in case they were captured before this rerun)
@@ -183,6 +189,12 @@ def register_screen():
                     for key in ['reg_face_embedding', 'reg_voice_embedding']:
                         st.session_state.pop(key, None)
 
+                    cookie_manager = st.session_state.get('cookie_manager')
+                    if cookie_manager:
+                        cookie_manager.set("user_id", str(login_result['user_id']), key="reg_set_user_id")
+                        cookie_manager.set("role", login_result['role'], key="reg_set_role")
+                        cookie_manager.set("is_logged_in", "true", key="reg_set_logged_in")
+
                     st.session_state['logged_in'] = True
                     st.session_state['user_id'] = login_result['user_id']
                     st.session_state['user_role'] = login_result['role']
@@ -208,7 +220,7 @@ def register_screen():
             </div>
         """, unsafe_allow_html=True)
 
-        if st.button("Sign In Instead", key="reg_to_login", use_container_width=True):
+        if st.button("Sign In Instead", key="reg_to_login", width="stretch"):
             # Clean up biometric state on navigate away
             for key in ['reg_face_embedding', 'reg_voice_embedding']:
                 st.session_state.pop(key, None)

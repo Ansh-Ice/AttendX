@@ -48,7 +48,7 @@ def login_screen():
         st.write("")
 
         # Sign In button
-        if st.button("Sign In  →", key="btn_sign_in", use_container_width=True, type="primary"):
+        if st.button("Sign In  →", key="btn_sign_in", width="stretch", type="primary"):
             if not email or not password:
                 st.warning("Please fill in all fields.")
             else:
@@ -56,6 +56,13 @@ def login_screen():
                     result = login(email, password)
 
                 if result["success"]:
+                    # Store in cookies
+                    cookie_manager = st.session_state.get('cookie_manager')
+                    if cookie_manager:
+                        cookie_manager.set("user_id", str(result['user_id']), key="set_user_id")
+                        cookie_manager.set("role", result['role'], key="set_role")
+                        cookie_manager.set("is_logged_in", "true", key="set_logged_in")
+
                     # Store auth state
                     st.session_state['logged_in'] = True
                     st.session_state['user_id'] = result['user_id']
@@ -88,11 +95,11 @@ def login_screen():
 
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("Register as Student", key="login_to_reg_s", use_container_width=True):
+            if st.button("Register as Student", key="login_to_reg_s", width="stretch"):
                 st.session_state['page'] = 'register_student'
                 st.rerun()
         with c2:
-            if st.button("Register as Teacher", key="login_to_reg_t", use_container_width=True):
+            if st.button("Register as Teacher", key="login_to_reg_t", width="stretch"):
                 st.session_state['page'] = 'register_teacher'
                 st.rerun()
 

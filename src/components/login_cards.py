@@ -40,7 +40,7 @@ def login_selection():
                 </div>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Register as Student  →", key="btn_reg_student", use_container_width=True):
+        if st.button("Register as Student  →", key="btn_reg_student", width="stretch"):
             st.session_state['page'] = 'register_student'
             st.session_state['transition'] = True
             st.rerun()
@@ -58,7 +58,7 @@ def login_selection():
                 </div>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Register as Teacher  →", key="btn_reg_teacher", use_container_width=True):
+        if st.button("Register as Teacher  →", key="btn_reg_teacher", width="stretch"):
             st.session_state['page'] = 'register_teacher'
             st.session_state['transition'] = True
             st.rerun()

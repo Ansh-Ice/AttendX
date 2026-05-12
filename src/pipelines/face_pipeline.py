@@ -86,12 +86,12 @@ def predict_attendance(class_image_np):
         else:
             predicted_id = all_students[0]
 
-    student_embedding = X_train[y_train.index(predicted_id)]
+        student_embedding = X_train[y_train.index(predicted_id)]
 
-    best_match_score = np.linalg.norm(encoding - student_embedding)
+        best_match_score = np.linalg.norm(encoding - student_embedding)
 
-    if best_match_score <= 0.6:
-        detected_students[predicted_id] = True
+        if best_match_score <= 0.6:
+            detected_students[predicted_id] = True
 
     return detected_students, all_students, len(encodings)
 

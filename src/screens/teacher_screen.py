@@ -8,11 +8,24 @@ Features:
     - Fully styled with the dark + gold theme
 """
 
+# pyrefly: ignore [missing-import]
 import streamlit as st
 import base64
 import os
 from src.ui.styles import apply_custom_css
 from src.components.footer import render_footer
+from src.components.dialog_share_subject import share_subject_dialog
+from src.components.dialog_take_attendance import take_attendance_dialog
+from src.components.dialog_voice_attendance import take_voice_attendance_dialog
+from src.database.db import (
+    get_teacher_by_user_id,
+    create_subject,
+    get_teacher_subjects,
+    delete_subject,
+    get_teacher_attendance_logs,
+    get_subject_students,
+    get_subject_class_count
+)
 
 
 # ----------------------------
@@ -261,9 +274,16 @@ def render_dashboard_header():
         """, unsafe_allow_html=True)
 
     with col_logout:
-        if st.button("🚪 Logout", key="dash_logout", use_container_width=True):
-            for key in ['logged_in', 'user_role', 'user_id', 'username', 'profile']:
-                st.session_state[key] = False if key == 'logged_in' else None
+        if st.button("🚪 Logout", key="dash_logout", width="stretch"):
+            cookie_manager = st.session_state.get('cookie_manager')
+            if cookie_manager:
+                for c, k in [("user_id", "del_user_id_t"), ("role", "del_role_t"), ("is_logged_in", "del_logged_in_t")]:
+                    try:
+                        cookie_manager.delete(c, key=k)
+                    except KeyError:
+                        pass
+
+            st.session_state.clear()
             st.session_state['page'] = 'home'
             st.rerun()
 
@@ -309,9 +329,38 @@ def render_card(icon, title, description):
 # SECTION VIEWS
 # ----------------------------
 
-def section_take_attendance():
+@st.dialog("Create Subject")
+def create_subject_dialog(teacher_id):
+    st.markdown("### Add New Subject")
+    sub_code = st.text_input("Subject Code*")
+    sub_name = st.text_input("Subject Name*")
+    sub_sec = st.text_input("Section")
+    
+    if st.button("Submit", type="primary", width="stretch"):
+        if not sub_code or not sub_name:
+            st.error("Subject code and name are required.")
+        else:
+            res = create_subject(sub_code, sub_name, sub_sec, teacher_id)
+            if res.get("success"):
+                st.success("Subject created successfully.")
+                st.rerun()
+            else:
+                st.error(res.get("message"))
+
+
+def section_take_attendance(teacher_id):
     """Take Attendance section — camera + voice capture cards."""
     st.markdown('<div class="section-label">TAKE ATTENDANCE</div>', unsafe_allow_html=True)
+
+    subjects = get_teacher_subjects(teacher_id)
+    if not subjects:
+        st.warning("Please create a subject first in the 'Manage Subjects' tab.")
+        return
+
+    subject_options = {f"{sub['subject_code']} - {sub['name']} (Section {sub.get('section', 'N/A')})": sub['subject_id'] for sub in subjects}
+    selected_subject_key = st.selectbox("Select Subject", options=list(subject_options.keys()))
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
     col1, col2 = st.columns(2, gap="large")
 
@@ -321,8 +370,9 @@ def section_take_attendance():
             title="Face Recognition",
             description="Capture a class photo and let AI identify present students using trained face embeddings. Fast, accurate, and proxy-proof."
         )
-        if st.button("Start Face Attendance →", key="btn_face_attend", use_container_width=True, type="primary"):
-            st.info("📸 Face attendance module coming soon!")
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Start Face Attendance →", key="btn_face_attend", width="stretch", type="primary"):
+            take_attendance_dialog(subject_options[selected_subject_key])
 
     with col2:
         render_card(
@@ -330,24 +380,53 @@ def section_take_attendance():
             title="Voice Recognition",
             description="Record a class audio session to identify students by their voice prints. Perfect for roll-call scenarios with AI verification."
         )
-        if st.button("Start Voice Attendance →", key="btn_voice_attend", use_container_width=True, type="primary"):
-            st.info("🎙️ Voice attendance module coming soon!")
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Start Voice Attendance →", key="btn_voice_attend", width="stretch", type="primary"):
+            take_voice_attendance_dialog(subject_options[selected_subject_key])
 
 
-def section_manage_subjects():
+def section_manage_subjects(teacher_id):
     """Manage Subjects section."""
     st.markdown('<div class="section-label">MANAGE SUBJECTS</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns(2, gap="large")
 
     with col1:
-        render_card(
-            icon="📚",
-            title="Your Subjects",
-            description="View and manage the subjects you teach. Add new subjects, edit existing ones, or assign students to your courses."
-        )
-        if st.button("Manage Subjects →", key="btn_manage_subjects", use_container_width=True, type="primary"):
-            st.info("📚 Subject management module coming soon!")
+        st.markdown("### Your Subjects")
+        if st.button("➕ Create Subject", type="primary"):
+            create_subject_dialog(teacher_id)
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        subjects = get_teacher_subjects(teacher_id)
+        
+        if not subjects:
+            st.info("No subjects found. Create one to get started.")
+        else:
+            for sub in subjects:
+                with st.container(border=True):
+                    # Fetch stats
+                    students = get_subject_students(sub['subject_id'])
+                    student_count = len(students)
+                    classes_count = get_subject_class_count(sub['subject_id'])
+                    
+                    c_info, c_share, c_del = st.columns([6, 1, 1])
+                    
+                    with c_info:
+                        st.markdown(f"**{sub.get('subject_code', '')} - {sub.get('name', '')}**")
+                        st.caption(f"Section {sub.get('section', 'N/A')} &nbsp;•&nbsp; 👥 {student_count} Students &nbsp;•&nbsp; 📚 {classes_count} Classes")
+                    
+                    with c_share:
+                        if st.button("", icon=":material/send:", key=f"share_{sub['subject_id']}", help="Share Subject Link", width="stretch"):
+                            share_subject_dialog(sub.get('name', ''), sub.get('section', ''), sub.get('join_code', ''))
+                    
+                    with c_del:
+                        if st.button("", icon=":material/delete:", key=f"del_{sub['subject_id']}", help="Delete Subject", width="stretch"):
+                            res = delete_subject(sub['subject_id'])
+                            if res.get("success"):
+                                st.success("Deleted!")
+                                st.rerun()
+                            else:
+                                st.error(res.get("message"))
 
     with col2:
         render_card(
@@ -355,33 +434,29 @@ def section_manage_subjects():
             title="Student Roster",
             description="View enrolled students across your subjects. See their registration status, biometric enrollment, and attendance summary."
         )
-        if st.button("View Students →", key="btn_view_students", use_container_width=True, type="primary"):
+        if st.button("View Students →", key="btn_view_students", width="stretch", type="primary"):
             st.info("👥 Student roster module coming soon!")
 
 
-def section_attendance_records():
+def section_attendance_records(teacher_id):
     """Attendance Records section."""
     st.markdown('<div class="section-label">ATTENDANCE RECORDS</div>', unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2, gap="large")
-
-    with col1:
-        render_card(
-            icon="📊",
-            title="Analytics & Reports",
-            description="Access detailed attendance analytics — daily, weekly, monthly trends. Export reports as CSV or view interactive charts."
+    logs = get_teacher_attendance_logs(teacher_id)
+    if not logs:
+        st.info("No attendance records found.")
+    else:
+        st.dataframe(
+            logs,
+            column_config={
+                "subject_name": "Subject",
+                "student": "Student",
+                "timestamp": "Timestamp",
+                "is_present": "Status"
+            },
+            hide_index=True,
+            width="stretch"
         )
-        if st.button("View Analytics →", key="btn_view_analytics", use_container_width=True, type="primary"):
-            st.info("📊 Analytics module coming soon!")
-
-    with col2:
-        render_card(
-            icon="📋",
-            title="Session History",
-            description="Browse past attendance sessions. Review which students were present, absent, or marked via face/voice recognition."
-        )
-        if st.button("View History →", key="btn_view_history", use_container_width=True, type="primary"):
-            st.info("📋 Session history module coming soon!")
 
 
 # ----------------------------
@@ -400,6 +475,14 @@ def teacher_screen():
     if st.session_state.get('user_role') != 'teacher':
         st.error("🚫 Access denied. This dashboard is for teachers only.")
         st.stop()
+
+    user_id = st.session_state.get('user_id')
+    teacher_data = get_teacher_by_user_id(user_id)
+    if not teacher_data:
+        st.error("Teacher profile not found.")
+        st.stop()
+        
+    teacher_id = teacher_data['teacher_id']
 
     # --- Dashboard header ---
     render_dashboard_header()
@@ -425,13 +508,13 @@ def teacher_screen():
     tab1, tab2, tab3 = st.tabs(["📸 Take Attendance", "📚 Manage Subjects", "📊 Attendance Records"])
     
     with tab1:
-        section_take_attendance()
+        section_take_attendance(teacher_id)
         
     with tab2:
-        section_manage_subjects()
+        section_manage_subjects(teacher_id)
         
     with tab3:
-        section_attendance_records()
+        section_attendance_records(teacher_id)
 
     # --- Dashboard footer ---
     render_footer()

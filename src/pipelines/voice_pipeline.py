@@ -57,7 +57,7 @@ def process_bulk_audio(audio_bytes, candidates_dict, threshold=0.65):
 
             sid, score = identify_speaker(embedding, candidates_dict, threshold)
             if sid is not None:
-                if sid not in identify_speaker or score > indentified_results[sid]:
+                if sid not in indentified_results or score > indentified_results[sid]:
                     indentified_results[sid] = score
 
         return indentified_results

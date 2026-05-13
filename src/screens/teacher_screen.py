@@ -17,15 +17,18 @@ from src.components.footer import render_footer
 from src.components.dialog_share_subject import share_subject_dialog
 from src.components.dialog_take_attendance import take_attendance_dialog
 from src.components.dialog_voice_attendance import take_voice_attendance_dialog
+from src.components.dialog_view_session import view_session_dialog
 from src.database.db import (
     get_teacher_by_user_id,
     create_subject,
     get_teacher_subjects,
     delete_subject,
-    get_teacher_attendance_logs,
+    get_teacher_attendance_sessions,
     get_subject_students,
     get_subject_class_count
 )
+from datetime import datetime
+import pytz
 
 
 # ----------------------------
@@ -439,24 +442,236 @@ def section_manage_subjects(teacher_id):
 
 
 def section_attendance_records(teacher_id):
-    """Attendance Records section."""
+    """Attendance Records section — display sessions grouped by timestamp."""
     st.markdown('<div class="section-label">ATTENDANCE RECORDS</div>', unsafe_allow_html=True)
+    
+    # Add CSS for session cards
+    st.markdown("""
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,500,0,0');
 
-    logs = get_teacher_attendance_logs(teacher_id)
-    if not logs:
-        st.info("No attendance records found.")
-    else:
-        st.dataframe(
-            logs,
-            column_config={
-                "subject_name": "Subject",
-                "student": "Student",
-                "timestamp": "Timestamp",
-                "is_present": "Status"
-            },
-            hide_index=True,
-            width="stretch"
-        )
+            .attendance-log-row {
+                margin-bottom: 1rem;
+            }
+            .session-card {
+                background:
+                    radial-gradient(circle at top left, rgba(212, 175, 55, 0.10), transparent 34%),
+                    linear-gradient(135deg, rgba(26, 26, 26, 0.98), rgba(20, 20, 20, 0.94));
+                border: 1px solid rgba(255,255,255,0.06);
+                border-radius: 18px;
+                padding: 1.35rem 1.5rem;
+                transition: all 0.3s ease;
+                position: relative;
+                overflow: hidden;
+            }
+            .session-card:hover {
+                border-color: rgba(212, 175, 55, 0.3);
+                box-shadow: 0 14px 32px rgba(212, 175, 55, 0.10);
+                transform: translateY(-2px);
+            }
+            .session-card::after {
+                content: '';
+                position: absolute;
+                inset: auto -35px -35px auto;
+                width: 120px;
+                height: 120px;
+                border-radius: 50%;
+                background: radial-gradient(circle, rgba(212, 175, 55, 0.10), transparent 65%);
+                pointer-events: none;
+            }
+            .session-card-content {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 1.5rem;
+                flex-wrap: wrap;
+            }
+            .session-card-info {
+                flex: 1;
+                min-width: 250px;
+            }
+            .session-card-subject {
+                font-family: 'Poppins', sans-serif;
+                font-size: 1.1rem;
+                font-weight: 700;
+                color: #f0f0f0;
+                margin-bottom: 0.7rem;
+            }
+            .session-card-meta {
+                font-size: 0.85rem;
+                color: #999;
+                display: flex;
+                gap: 0.75rem;
+                flex-wrap: wrap;
+            }
+            .session-card-meta-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                padding: 0.42rem 0.7rem;
+                border-radius: 999px;
+                background: rgba(255,255,255,0.04);
+                border: 1px solid rgba(255,255,255,0.06);
+                color: #bdbdbd;
+            }
+            .material-symbols-rounded {
+                font-family: 'Material Symbols Rounded';
+                font-weight: normal;
+                font-style: normal;
+                font-size: 1rem;
+                line-height: 1;
+                letter-spacing: normal;
+                text-transform: none;
+                display: inline-block;
+                white-space: nowrap;
+                word-wrap: normal;
+                direction: ltr;
+                -webkit-font-smoothing: antialiased;
+            }
+            .session-card-stats {
+                display: flex;
+                gap: 1rem;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+            .session-stat {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+                min-width: 72px;
+            }
+            .session-stat-value {
+                font-size: 1.4rem;
+                font-weight: 800;
+                line-height: 1;
+                margin-bottom: 0.2rem;
+            }
+            .session-stat-value-present {
+                color: #4ade80;
+            }
+            .session-stat-value-absent {
+                color: #f87171;
+            }
+            .session-stat-value-total {
+                color: #D4AF37;
+            }
+            .session-stat-label {
+                font-size: 0.65rem;
+                color: #999;
+                font-weight: 600;
+                letter-spacing: 0.05em;
+            }
+            .session-card-hint {
+                margin-top: 0.9rem;
+                font-size: 0.78rem;
+                color: rgba(212, 175, 55, 0.82);
+                letter-spacing: 0.04em;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+            }
+            @media (max-width: 768px) {
+                .session-card {
+                    padding: 1.15rem 1.1rem;
+                }
+                .session-card-content {
+                    gap: 1rem;
+                }
+                .session-card-meta {
+                    gap: 0.55rem;
+                }
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    sessions = get_teacher_attendance_sessions(teacher_id)
+    
+    if not sessions:
+        st.info("No attendance records found. Start taking attendance to see sessions here.")
+        return
+    
+    # Helper function to convert UTC to IST
+    def convert_to_ist(iso_timestamp):
+        """Convert ISO UTC timestamp to IST."""
+        try:
+            utc_dt = datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00'))
+            ist = pytz.timezone('Asia/Kolkata')
+            ist_dt = utc_dt.astimezone(ist)
+            return ist_dt.strftime('%Y-%m-%d'), ist_dt.strftime('%H:%M:%S')
+        except:
+            return iso_timestamp[:10], iso_timestamp[11:19]
+    
+    # Display sessions
+    for session in sessions:
+        timestamp = session['timestamp']
+        ist_date, ist_time = convert_to_ist(timestamp)
+        subject = session['subject_name']
+        section = session['section']
+        present = session['present']
+        absent = session['absent']
+        total = present + absent
+
+        card_col, action_col = st.columns([5.6, 1.4], gap="medium")
+
+        with card_col:
+            st.markdown(f"""
+                <div class="attendance-log-row">
+                    <div class="session-card">
+                        <div class="session-card-content">
+                            <div class="session-card-info">
+                                <div class="session-card-subject">{subject}</div>
+                                <div class="session-card-meta">
+                                    <span class="session-card-meta-badge">
+                                        <span class="material-symbols-rounded">calendar_month</span>
+                                        {ist_date}
+                                    </span>
+                                    <span class="session-card-meta-badge">
+                                        <span class="material-symbols-rounded">schedule</span>
+                                        {ist_time}
+                                    </span>
+                                    <span class="session-card-meta-badge">
+                                        <span class="material-symbols-rounded">groups</span>
+                                        Section {section}
+                                    </span>
+                                </div>
+                                <div class="session-card-hint">
+                                    <span class="material-symbols-rounded">visibility</span>
+                                    Open the detailed attendance view
+                                </div>
+                            </div>
+                            <div class="session-card-stats">
+                                <div class="session-stat">
+                                    <div class="session-stat-value session-stat-value-present">{present}</div>
+                                    <div class="session-stat-label">PRESENT</div>
+                                </div>
+                                <div style="width: 1px; height: 45px; background: rgba(255,255,255,0.1);"></div>
+                                <div class="session-stat">
+                                    <div class="session-stat-value session-stat-value-absent">{absent}</div>
+                                    <div class="session-stat-label">ABSENT</div>
+                                </div>
+                                <div style="width: 1px; height: 45px; background: rgba(255,255,255,0.1);"></div>
+                                <div class="session-stat">
+                                    <div class="session-stat-value session-stat-value-total">{total}</div>
+                                    <div class="session-stat-label">TOTAL</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        with action_col:
+            st.markdown("<div style='height: 0.35rem;'></div>", unsafe_allow_html=True)
+            if st.button(
+                "View Details",
+                key=f"view_{timestamp}",
+                icon=":material/visibility:",
+                help="Open detailed attendance dialog",
+                width="stretch",
+                type="primary",
+            ):
+                view_session_dialog(teacher_id, timestamp)
 
 
 # ----------------------------

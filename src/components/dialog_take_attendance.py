@@ -41,7 +41,7 @@ def take_attendance_dialog(subject_id: int):
         st.markdown(f"**Selected Photos ({len(st.session_state['attendance_images'])})**")
         cols = st.columns(4)
         for i, img_bytes in enumerate(st.session_state['attendance_images']):
-            cols[i % 4].image(img_bytes, use_column_width=True)
+            cols[i % 4].image(img_bytes, width="stretch")
             
         if st.button("Clear Batch", width="stretch"):
             st.session_state['attendance_images'] = []
@@ -100,6 +100,7 @@ def take_attendance_dialog(subject_id: int):
                 if res.get("success"):
                     st.success("Attendance marked successfully!")
                     st.session_state['attendance_results'] = None
+                    st.session_state['attendance_images'] = []
                     st.rerun()
                 else:
                     st.error(res.get("message"))

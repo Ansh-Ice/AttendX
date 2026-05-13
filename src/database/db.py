@@ -396,3 +396,102 @@ def get_student_attendance(student_id: int) -> list:
     except Exception as e:
         print(f"Error fetching attendance logs: {e}")
         return []
+
+
+# ----------------------------
+# GROUPED ATTENDANCE SESSIONS
+# ----------------------------
+
+def get_teacher_attendance_sessions(teacher_id: int) -> list:
+    """Get attendance logs grouped by session (timestamp) for a teacher."""
+    try:
+        res = supabase.table('attendance_logs').select(
+            'timestamp, is_present, student_id, subjects!inner(name, section, teacher_id), students(name)'
+        ).eq('subjects.teacher_id', teacher_id).execute()
+        
+        if not res.data:
+            return []
+        
+        # Group by timestamp
+        sessions = {}
+        for log in res.data:
+            timestamp = log['timestamp']
+            if timestamp not in sessions:
+                sessions[timestamp] = {
+                    "timestamp": timestamp,
+                    "date": timestamp[:10],
+                    "subject_name": log['subjects']['name'],
+                    "section": log['subjects']['section'],
+                    "present": 0,
+                    "absent": 0,
+                    "records": []
+                }
+            
+            student_name = "Unknown"
+            if log.get('students'):
+                student_name = log['students'].get('name', 'Unknown')
+            
+            sessions[timestamp]["records"].append({
+                "student_id": log['student_id'],
+                "student_name": student_name,
+                "is_present": log['is_present']
+            })
+            
+            if log['is_present']:
+                sessions[timestamp]["present"] += 1
+            else:
+                sessions[timestamp]["absent"] += 1
+        
+        # Convert to list and sort by timestamp descending
+        session_list = list(sessions.values())
+        session_list.sort(key=lambda x: x['timestamp'], reverse=True)
+        return session_list
+        
+    except Exception as e:
+        print(f"Error fetching attendance sessions: {e}")
+        return []
+
+
+def get_session_details(teacher_id: int, timestamp: str) -> dict:
+    """Get detailed records for a specific attendance session."""
+    try:
+        res = supabase.table('attendance_logs').select(
+            'timestamp, is_present, student_id, subjects!inner(name, section, teacher_id), students(name)'
+        ).eq('subjects.teacher_id', teacher_id).eq('timestamp', timestamp).execute()
+        
+        if not res.data:
+            return None
+        
+        session = {
+            "timestamp": timestamp,
+            "date": timestamp[:10],
+            "subject_name": res.data[0]['subjects']['name'],
+            "section": res.data[0]['subjects']['section'],
+            "present": 0,
+            "absent": 0,
+            "records": []
+        }
+        
+        for log in res.data:
+            student_name = "Unknown"
+            if log.get('students'):
+                student_name = log['students'].get('name', 'Unknown')
+            
+            session["records"].append({
+                "student_id": log['student_id'],
+                "student_name": student_name,
+                "is_present": log['is_present']
+            })
+            
+            if log['is_present']:
+                session["present"] += 1
+            else:
+                session["absent"] += 1
+        
+        # Sort by present first
+        session["records"].sort(key=lambda x: x['is_present'], reverse=True)
+        return session
+        
+    except Exception as e:
+        print(f"Error fetching session details: {e}")
+        return None

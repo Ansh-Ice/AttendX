@@ -121,10 +121,11 @@ def send_verification_email(email: str, name: str, token: str) -> dict:
     try:
         service_id = st.secrets.get("EMAILJS_SERVICE_ID")
         template_id = st.secrets.get("EMAILJS_TEMPLATE_ID")
+        public_key = st.secrets.get("EMAILJS_PUBLIC_KEY")
         private_key = st.secrets.get("EMAILJS_PRIVATE_KEY")
         base_url = st.secrets.get("APP_BASE_URL", "https://attendx-046.streamlit.app")
 
-        if not all([service_id, template_id, public_key]):
+        if not all([service_id, template_id, public_key, private_key]):
             # EmailJS not configured — silently skip
             return {"success": True, "message": "Verification skipped (EmailJS not configured)."}
 
@@ -153,7 +154,7 @@ def send_verification_email(email: str, name: str, token: str) -> dict:
         if response.status_code == 200:
             return {"success": True, "message": "Verification email sent!"}
         else:
-            return {"success": False, "message": f"Failed to send email (status {response.status_code})."}
+            return {"success": False, "message": f"Failed to send email (status {response.status_code}): {response.text}"}
 
     except Exception as e:
         return {"success": False, "message": f"Email service error: {str(e)}"}

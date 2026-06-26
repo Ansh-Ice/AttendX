@@ -1,28 +1,15 @@
 import streamlit as st
-import base64
-import os
-
-def _b64(path):
-    with open(path, 'rb') as f:
-        return base64.b64encode(f.read()).decode()
+from src.ui.helpers import get_logo_src
 
 def header_home():
     """Full navbar built with st.columns, wrapped in .navbar-row for vertical centering."""
-    logo_path = os.path.join("src", "assets", "logo_light.png")
-    if not os.path.exists(logo_path):
-        logo_path = os.path.join("src", "assets", "logo.png")
-
-    try:
-        img_src = f"data:image/png;base64,{_b64(logo_path)}"
-    except Exception:
-        img_src = ""
-
+    img_src = get_logo_src("light")
     logged_in = st.session_state.get('logged_in', False)
 
     # Wrap in .navbar-row so CSS can force vertical centering on the columns
     st.markdown('<div class="navbar-row">', unsafe_allow_html=True)
 
-    logo_col, links_col, btn_col, theme_col = st.columns([2, 4, 1.2, 1])
+    logo_col, links_col, btn_col = st.columns([2, 4, 1.5])
 
     with logo_col:
         st.markdown(f"""
@@ -34,31 +21,22 @@ def header_home():
     with links_col:
         st.markdown("""
             <div class="nav-links-inline">
-                <a href="#" class="nav-link active">Home</a>
-                <a href="#" class="nav-link">Features</a>
-                <a href="#" class="nav-link">Contact</a>
+                <a href="#smart-attendance" class="nav-link active">Home</a>
+                <a href="#about-this-website" class="nav-link">Features</a>
+                <a href="#register-to-continue" class="nav-link">Register</a>
             </div>
         """, unsafe_allow_html=True)
 
     with btn_col:
         if logged_in:
-            if st.button("Logout", key="nav_logout_btn", width="stretch"):
-                for key in ['logged_in', 'user_role', 'user_id', 'username', 'profile']:
-                    st.session_state[key] = False if key == 'logged_in' else None
-                st.session_state['page'] = 'home'
+            if st.button("Dashboard", key="nav_dash_btn", width="stretch"):
+                role = st.session_state.get('user_role', 'student')
+                st.session_state['page'] = f'{role}_dashboard'
                 st.rerun()
         else:
             if st.button("Login", key="nav_login_btn", width="stretch"):
                 st.session_state['page'] = 'login'
                 st.rerun()
-
-    with theme_col:
-        st.markdown("""
-            <div class="nav-toggle">
-                <div class="toggle-icon">☀️</div>
-                <div class="toggle-icon">🌙</div>
-            </div>
-        """, unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 

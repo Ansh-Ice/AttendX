@@ -18,3 +18,4 @@ webrtcvad-wheels
 librosa
 resemblyzer
 pytz
+requests

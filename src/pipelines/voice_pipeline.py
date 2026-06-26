@@ -46,10 +46,10 @@ def process_bulk_audio(audio_bytes, candidates_dict, threshold=0.65):
         encoder = load_voice_encoder()
         audio, sr = librosa.load(io.BytesIO(audio_bytes),sr=16000)
         segments = librosa.effects.split(audio, top_db=30)
-        indentified_results = {}
+        identified_results = {}
         
         for start, end in segments:
-            if(end-start) < sr * 0.5:
+            if (end - start) < sr * 0.5:
                 continue
             segment_audio = audio[start:end]
             wav = preprocess_wav(segment_audio)
@@ -57,10 +57,10 @@ def process_bulk_audio(audio_bytes, candidates_dict, threshold=0.65):
 
             sid, score = identify_speaker(embedding, candidates_dict, threshold)
             if sid is not None:
-                if sid not in indentified_results or score > indentified_results[sid]:
-                    indentified_results[sid] = score
+                if sid not in identified_results or score > identified_results[sid]:
+                    identified_results[sid] = score
 
-        return indentified_results
+        return identified_results
 
     except Exception as e:
         st.error(f"Voice Processing Error: {e}")

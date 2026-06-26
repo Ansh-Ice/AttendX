@@ -1,6 +1,9 @@
 from src.database.config import supabase
 # pyrefly: ignore [missing-import]
 import bcrypt as bc
+import random
+import string
+from datetime import datetime, timezone
 
 
 # ----------------------------
@@ -182,8 +185,7 @@ def check_face_exists(new_embedding: list, threshold: float = 0.6) -> dict:
 # TEACHER DASHBOARD - SUBJECTS & ATTENDANCE
 # ----------------------------
 
-import random
-import string
+# random and string imported at top
 
 def generate_join_code(length=6):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
@@ -233,9 +235,15 @@ def get_teacher_subjects(teacher_id: int) -> list:
         return []
 
 def delete_subject(subject_id: int) -> dict:
+    """Delete a subject and all associated enrollments and attendance logs."""
     try:
-        res = supabase.table('subjects').delete().eq('subject_id', subject_id).execute()
-        return {"success": True, "message": "Subject deleted successfully."}
+        # Delete attendance logs for this subject first
+        supabase.table('attendance_logs').delete().eq('subject_id', subject_id).execute()
+        # Delete student enrollments
+        supabase.table('subject_students').delete().eq('subject_id', subject_id).execute()
+        # Finally delete the subject
+        supabase.table('subjects').delete().eq('subject_id', subject_id).execute()
+        return {"success": True, "message": "Subject and all related records deleted successfully."}
     except Exception as e:
         return {"success": False, "message": f"Failed to delete subject: {str(e)}"}
 
@@ -273,10 +281,32 @@ def get_subject_class_count(subject_id: int) -> int:
         print(f"Error fetching class count: {e}")
         return 0
 
-def mark_attendance(subject_id: int, results: dict) -> dict:
-    from datetime import datetime
+def check_duplicate_attendance(subject_id: int, date_str: str) -> bool:
+    """Check if attendance has already been marked for a subject on a given date."""
     try:
-        timestamp = datetime.utcnow().isoformat()
+        res = supabase.table('attendance_logs').select('timestamp').eq('subject_id', subject_id).execute()
+        if res.data:
+            for log in res.data:
+                if log.get('timestamp', '')[:10] == date_str:
+                    return True
+        return False
+    except Exception:
+        return False
+
+
+def mark_attendance(subject_id: int, results: dict) -> dict:
+    """Mark attendance for a subject. Prevents duplicate attendance for the same day."""
+    try:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        today_str = timestamp[:10]
+
+        # Check for duplicate attendance on the same day
+        if check_duplicate_attendance(subject_id, today_str):
+            return {
+                "success": False,
+                "message": "Attendance has already been marked for this subject today. Duplicate entries are not allowed."
+            }
+
         records = []
         for student_id, is_present in results.items():
             records.append({
@@ -495,3 +525,217 @@ def get_session_details(teacher_id: int, timestamp: str) -> dict:
     except Exception as e:
         print(f"Error fetching session details: {e}")
         return None
+
+
+# ----------------------------
+# DASHBOARD ANALYTICS
+# ----------------------------
+
+def get_teacher_dashboard_stats(teacher_id: int) -> dict:
+    """Get aggregated dashboard statistics for a teacher."""
+    try:
+        # Get all subjects for this teacher
+        subjects = get_teacher_subjects(teacher_id)
+        total_subjects = len(subjects)
+
+        # Get all unique enrolled students across all subjects
+        all_student_ids = set()
+        for sub in subjects:
+            students = get_subject_students(sub['subject_id'])
+            for s in students:
+                all_student_ids.add(s.get('student_id'))
+        total_students = len(all_student_ids)
+
+        # Get today's sessions and overall attendance stats
+        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        sessions = get_teacher_attendance_sessions(teacher_id)
+
+        sessions_today = 0
+        total_present = 0
+        total_records = 0
+
+        for session in sessions:
+            ts = session.get('timestamp', '')
+            if ts[:10] == today_str:
+                sessions_today += 1
+            total_present += session.get('present', 0)
+            total_records += session.get('present', 0) + session.get('absent', 0)
+
+        avg_attendance = round((total_present / total_records * 100), 1) if total_records > 0 else 0
+
+        return {
+            "total_subjects": total_subjects,
+            "total_students": total_students,
+            "sessions_today": sessions_today,
+            "avg_attendance": avg_attendance,
+            "total_sessions": len(sessions),
+            "total_present": total_present,
+            "total_records": total_records
+        }
+    except Exception as e:
+        print(f"Error fetching dashboard stats: {e}")
+        return {
+            "total_subjects": 0,
+            "total_students": 0,
+            "sessions_today": 0,
+            "avg_attendance": 0,
+            "total_sessions": 0,
+            "total_present": 0,
+            "total_records": 0
+        }
+
+
+def get_all_enrolled_students(teacher_id: int) -> list:
+    """Get all students enrolled across all subjects for a teacher, with their biometric status."""
+    try:
+        subjects = get_teacher_subjects(teacher_id)
+        student_map = {}  # student_id -> {name, subjects: [], has_face, has_voice}
+
+        for sub in subjects:
+            students = get_subject_students(sub['subject_id'])
+            for s in students:
+                sid = s.get('student_id')
+                if sid not in student_map:
+                    student_map[sid] = {
+                        'student_id': sid,
+                        'name': s.get('name', 'Unknown'),
+                        'subjects': [],
+                    }
+                student_map[sid]['subjects'].append(sub.get('name', ''))
+
+        # Fetch biometric status for all students
+        if student_map:
+            student_ids = list(student_map.keys())
+            res = supabase.table('students').select(
+                'student_id, face_embedding, voice_embedding'
+            ).in_('student_id', student_ids).execute()
+
+            if res.data:
+                for record in res.data:
+                    sid = record['student_id']
+                    if sid in student_map:
+                        student_map[sid]['has_face'] = bool(record.get('face_embedding'))
+                        student_map[sid]['has_voice'] = bool(record.get('voice_embedding'))
+
+        return list(student_map.values())
+    except Exception as e:
+        print(f"Error fetching enrolled students: {e}")
+        return []
+
+
+# ----------------------------
+# EMAIL VERIFICATION
+# ----------------------------
+
+def generate_verification_token(length=32):
+    """Generate a secure random verification token."""
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
+
+def set_user_verified(user_id: int) -> dict:
+    """Mark a user as email-verified."""
+    try:
+        res = supabase.table('users').update({
+            'is_verified': True,
+            'verification_token': None
+        }).eq('user_id', user_id).execute()
+        if res.data:
+            return {"success": True}
+        return {"success": False, "message": "User not found."}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+def create_pending_registration(token: str, name: str, email: str, password: str, role: str, face_embedding: list = None, voice_embedding: list = None) -> dict:
+    if check_user_exists(email):
+        return {"success": False, "message": "User already exists"}
+        
+    hashed = hash_password(password)
+    
+    try:
+        res = supabase.table('pending_registrations').insert({
+            "token": token,
+            "name": name,
+            "email": email,
+            "password_hash": hashed,
+            "role": role,
+            "face_embedding": face_embedding,
+            "voice_embedding": voice_embedding
+        }).execute()
+        return {"success": True, "message": "Pending registration created"}
+    except Exception as e:
+        return {"success": False, "message": f"Database error: {str(e)}"}
+
+def verify_and_commit_registration(token: str) -> dict:
+    """Look up a verification token in pending_registrations, create the user, and mark them as verified."""
+    try:
+        # Check pending registrations
+        res = supabase.table('pending_registrations').select('*').eq('token', token).execute()
+        if not res.data:
+            return {"success": False, "message": "Invalid or expired verification token."}
+            
+        pending = res.data[0]
+        email = pending['email']
+        role = pending['role']
+        
+        # Make sure user doesn't exist
+        if check_user_exists(email):
+            # Cleanup pending
+            supabase.table('pending_registrations').delete().eq('token', token).execute()
+            return {"success": False, "message": "User already exists."}
+            
+        # 1. Create user in users table
+        user_res = supabase.table('users').insert({
+            "email": email,
+            "password": pending['password_hash'],
+            "role": role,
+            "is_verified": True,
+            "verification_token": None
+        }).execute()
+        
+        if not user_res.data:
+            return {"success": False, "message": "Failed to create user record."}
+            
+        user_id = user_res.data[0]["user_id"]
+        
+        # 2. Create role profile
+        if role == "teacher":
+            supabase.table('teachers').insert({
+                "name": pending['name'],
+                "user_id": user_id
+            }).execute()
+        elif role == "student":
+            supabase.table('students').insert({
+                "name": pending['name'],
+                "user_id": user_id,
+                "face_embedding": pending['face_embedding'],
+                "voice_embedding": pending['voice_embedding']
+            }).execute()
+            
+        # 3. Delete pending registration
+        supabase.table('pending_registrations').delete().eq('token', token).execute()
+        
+        return {"success": True, "message": "Account created and verified successfully!"}
+        
+    except Exception as e:
+        return {"success": False, "message": f"Database error: {str(e)}"}
+
+
+def get_user_by_email(email: str) -> dict:
+    """Fetch a user record by email."""
+    try:
+        res = supabase.table('users').select('*').eq('email', email).execute()
+        return res.data[0] if res.data else None
+    except Exception:
+        return None
+
+
+def update_verification_token(user_id: int, token: str) -> dict:
+    """Update the verification token for a user (for resend)."""
+    try:
+        res = supabase.table('users').update({
+            'verification_token': token
+        }).eq('user_id', user_id).execute()
+        return {"success": bool(res.data)}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

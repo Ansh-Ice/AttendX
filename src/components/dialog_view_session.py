@@ -6,8 +6,7 @@ Displays attendance details for a specific session with a clean, themed view.
 
 import streamlit as st
 from src.database.db import get_session_details
-from datetime import datetime
-import pytz
+from src.ui.helpers import convert_to_ist, sanitize_html
 
 
 @st.dialog("Session Attendance Details")
@@ -19,17 +18,6 @@ def view_session_dialog(teacher_id: int, timestamp: str):
     if not session:
         st.error("Failed to load session details.")
         return
-    
-    # Helper function to convert UTC to IST
-    def convert_to_ist(iso_timestamp):
-        """Convert ISO UTC timestamp to IST."""
-        try:
-            utc_dt = datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00'))
-            ist = pytz.timezone('Asia/Kolkata')
-            ist_dt = utc_dt.astimezone(ist)
-            return ist_dt.strftime('%Y-%m-%d'), ist_dt.strftime('%H:%M:%S')
-        except:
-            return iso_timestamp[:10], iso_timestamp[11:19]
     
     ist_date, ist_time = convert_to_ist(timestamp)
     

@@ -4,7 +4,7 @@ import io
 # pyrefly: ignore [missing-import]
 import segno
 
-BASE_URL = "https://attendx-046.streamlit.app"
+BASE_URL = st.secrets.get("APP_BASE_URL", "https://attendx-046.streamlit.app")
 
 @st.dialog("Share Class Link")
 def share_subject_dialog(subject_name: str, section: str, join_code: str):

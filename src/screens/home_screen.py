@@ -2,6 +2,7 @@ import streamlit as st
 from src.ui.styles import apply_custom_css
 from src.components.header import header_home
 from src.components.hero import hero_section
+from src.components.about import about_section
 from src.components.login_cards import login_selection
 from src.components.footer import render_footer
 
@@ -11,6 +12,9 @@ def home_screen():
     header_home()
 
     hero_section()
+
+    st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
+    about_section()
 
     st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
     login_selection()

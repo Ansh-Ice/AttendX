@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 from src.database.db import get_subject_students, mark_attendance
 from src.pipelines.face_pipeline import predict_attendance
+from src.ui.helpers import sanitize_html
 
 @st.dialog("Take Attendance")
 def take_attendance_dialog(subject_id: int):
@@ -45,6 +46,7 @@ def take_attendance_dialog(subject_id: int):
             
         if st.button("Clear Batch", width="stretch"):
             st.session_state['attendance_images'] = []
+            st.session_state['attendance_results'] = None
             st.rerun()
 
     st.write("")
@@ -85,7 +87,7 @@ def take_attendance_dialog(subject_id: int):
         with st.container(border=True):
             for student in students:
                 sid = student['student_id']
-                name = student['name']
+                name = sanitize_html(student.get('name', 'Unknown'))
                 is_present = results[sid]
                 
                 if is_present:

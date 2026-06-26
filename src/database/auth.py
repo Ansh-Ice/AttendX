@@ -2,11 +2,13 @@
 auth.py — Authentication service layer for AttendX.
 
 Sits between the UI screens and db.py.
-Handles validation, business logic, and structured responses.
+Handles validation, business logic, rate limiting, and structured responses.
 All password hashing is delegated to db.py.
 """
 
 import re
+import time
+import streamlit as st
 from src.database.db import (
     login_user,
     create_teacher,
@@ -15,7 +17,50 @@ from src.database.db import (
     get_student_by_user_id,
     update_student_embeddings,
     check_face_exists,
+    generate_verification_token,
+    get_user_by_email,
+    update_verification_token,
 )
+
+
+# ----------------------------
+# RATE LIMITING
+# ----------------------------
+
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_SECONDS = 300  # 5 minutes
+
+
+def _check_rate_limit() -> str | None:
+    """Check if the user has exceeded login attempts. Returns error message or None."""
+    if 'login_attempts' not in st.session_state:
+        st.session_state['login_attempts'] = 0
+        st.session_state['login_lockout_until'] = 0
+
+    now = time.time()
+    lockout_until = st.session_state.get('login_lockout_until', 0)
+
+    if now < lockout_until:
+        remaining = int(lockout_until - now)
+        mins = remaining // 60
+        secs = remaining % 60
+        return f"Too many failed attempts. Please try again in {mins}m {secs}s."
+
+    return None
+
+
+def _record_failed_attempt():
+    """Record a failed login attempt and lock out if threshold exceeded."""
+    st.session_state['login_attempts'] = st.session_state.get('login_attempts', 0) + 1
+    if st.session_state['login_attempts'] >= MAX_LOGIN_ATTEMPTS:
+        st.session_state['login_lockout_until'] = time.time() + LOCKOUT_SECONDS
+        st.session_state['login_attempts'] = 0
+
+
+def _reset_attempts():
+    """Reset login attempt counter after successful login."""
+    st.session_state['login_attempts'] = 0
+    st.session_state['login_lockout_until'] = 0
 
 
 # ----------------------------
@@ -61,6 +106,78 @@ def _validate_signup_fields(name: str, email: str, password: str, confirm_passwo
 
 
 # ----------------------------
+# EMAIL VERIFICATION (EmailJS)
+# ----------------------------
+
+def send_verification_email(email: str, name: str, token: str) -> dict:
+    """
+    Send a verification email via EmailJS REST API.
+    
+    Requires EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, and EMAILJS_PUBLIC_KEY
+    to be set in .streamlit/secrets.toml.
+    """
+    import requests
+
+    try:
+        service_id = st.secrets.get("EMAILJS_SERVICE_ID")
+        template_id = st.secrets.get("EMAILJS_TEMPLATE_ID")
+        private_key = st.secrets.get("EMAILJS_PRIVATE_KEY")
+        base_url = st.secrets.get("APP_BASE_URL", "https://attendx-046.streamlit.app")
+
+        if not all([service_id, template_id, public_key]):
+            # EmailJS not configured — silently skip
+            return {"success": True, "message": "Verification skipped (EmailJS not configured)."}
+
+        verification_link = f"{base_url}/?verify-token={token}"
+
+        payload = {
+            "service_id": service_id,
+            "template_id": template_id,
+            "user_id": public_key,
+            "accessToken": private_key,
+            "template_params": {
+                "to_email": email,
+                "to_name": name,
+                "verification_link": verification_link,
+                "app_name": "AttendX"
+            }
+        }
+
+        response = requests.post(
+            "https://api.emailjs.com/api/v1.0/email/send",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            return {"success": True, "message": "Verification email sent!"}
+        else:
+            return {"success": False, "message": f"Failed to send email (status {response.status_code})."}
+
+    except Exception as e:
+        return {"success": False, "message": f"Email service error: {str(e)}"}
+
+
+def resend_verification(email: str) -> dict:
+    """Resend verification email with a new token."""
+    user = get_user_by_email(email)
+    if not user:
+        return {"success": False, "message": "User not found."}
+
+    if user.get('is_verified'):
+        return {"success": False, "message": "Email is already verified."}
+
+    token = generate_verification_token()
+    update_result = update_verification_token(user['user_id'], token)
+    if not update_result.get('success'):
+        return {"success": False, "message": "Failed to generate new token."}
+
+    name = user.get('email', '').split('@')[0]  # Fallback name
+    return send_verification_email(email, name, token)
+
+
+# ----------------------------
 # SIGNUP
 # ----------------------------
 
@@ -84,28 +201,44 @@ def signup(name: str, email: str, password: str, confirm_password: str, role: st
     email = email.strip().lower()
     name = name.strip()
 
-    # 3. Create user + profile based on role
+    # 3. Check if user already exists
+    user = get_user_by_email(email)
+    if user:
+        return {"success": False, "message": "User already exists with this email."}
+
+    # 4. Generate token and save to pending_registrations
     try:
-        if role == "teacher":
-            result = create_teacher(name, email, password)
-            profile_key = "teacher"
-        elif role == "student":
-            result = create_student(name, email, password)
-            profile_key = "student"
-        else:
-            return {"success": False, "message": f"Invalid role: {role}"}
+        token = generate_verification_token()
+        
+        from src.database.db import create_pending_registration
+        result = create_pending_registration(
+            token=token,
+            name=name,
+            email=email,
+            password=password,
+            role=role
+        )
 
         if not result["success"]:
             return {"success": False, "message": result.get("message", "Registration failed.")}
 
-        return {
-            "success": True,
-            "message": f"{role.capitalize()} account created successfully!",
-            "data": result.get(profile_key, {})
-        }
+        # 5. Send verification email
+        email_result = send_verification_email(email, name, token)
+        
+        if email_result.get("success"):
+            return {
+                "success": True,
+                "message": f"{role.capitalize()} account created! Please check your email to verify and complete registration.",
+                "data": {}
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Registration saved, but failed to send verification email: {email_result.get('message')}"
+            }
 
     except Exception as e:
-        return {"success": False, "message": f"Database error: {str(e)}"}
+        return {"success": False, "message": f"Error: {str(e)}"}
 
 
 # ----------------------------
@@ -128,6 +261,7 @@ def signup_student_with_biometrics(
         2. Check if face already exists in database
         3. Create user + student record
         4. Store face & voice embeddings
+        5. Send verification email
 
     Returns:
         {
@@ -163,38 +297,46 @@ def signup_student_with_biometrics(
     except Exception as e:
         return {"success": False, "message": f"Face verification error: {str(e)}"}
 
-    # 5. Create user + student record (through normal flow)
+    # 5. Check if user already exists
+    user = get_user_by_email(email)
+    if user:
+        return {"success": False, "message": "User already exists with this email."}
+
+    # 6. Save to pending_registrations
     try:
-        result = create_student(name, email, password)
-        if not result["success"]:
-            return {"success": False, "message": result.get("message", "Registration failed.")}
-
-        student_data = result["student"]
-        student_id = student_data["student_id"]
-
-        # 6. Store biometric embeddings
-        embed_result = update_student_embeddings(
-            student_id=student_id,
+        token = generate_verification_token()
+        
+        from src.database.db import create_pending_registration
+        result = create_pending_registration(
+            token=token,
+            name=name,
+            email=email,
+            password=password,
+            role="student",
             face_embedding=face_embedding,
             voice_embedding=voice_embedding
         )
 
-        if not embed_result["success"]:
-            # Account created but embeddings failed — partial success
+        if not result["success"]:
+            return {"success": False, "message": result.get("message", "Registration failed.")}
+
+        # 7. Send verification email
+        email_result = send_verification_email(email, name, token)
+        
+        if email_result.get("success"):
             return {
                 "success": True,
-                "message": "Account created, but biometric data could not be saved. Please contact admin.",
-                "data": student_data
+                "message": "Student registration saved! Check your email to verify and complete registration.",
+                "data": {}
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Registration saved, but failed to send verification email: {email_result.get('message')}"
             }
 
-        return {
-            "success": True,
-            "message": "Student account created with biometric data!",
-            "data": embed_result["student"]
-        }
-
     except Exception as e:
-        return {"success": False, "message": f"Database error: {str(e)}"}
+        return {"success": False, "message": f"Error: {str(e)}"}
 
 
 # ----------------------------
@@ -204,6 +346,7 @@ def signup_student_with_biometrics(
 def login(email: str, password: str) -> dict:
     """
     Authenticate a user and fetch their profile.
+    Includes rate limiting protection.
 
     Returns:
         {
@@ -214,6 +357,11 @@ def login(email: str, password: str) -> dict:
             "profile": { name, etc. }  (None for admin)
         }
     """
+    # 0. Check rate limit
+    rate_err = _check_rate_limit()
+    if rate_err:
+        return {"success": False, "message": rate_err}
+
     # 1. Validate inputs
     email_err = _validate_email(email)
     if email_err:
@@ -230,18 +378,30 @@ def login(email: str, password: str) -> dict:
         auth_result = login_user(email, password)
 
         if not auth_result["success"]:
+            _record_failed_attempt()
             return {"success": False, "message": auth_result.get("message", "Login failed.")}
 
         user_id = auth_result["user_id"]
         role = auth_result["role"]
 
-        # 4. Fetch role-specific profile
+        # 4. Check email verification (if column exists)
+        user = get_user_by_email(email)
+        if user and user.get('is_verified') is False:
+            return {
+                "success": False,
+                "message": "EMAIL_NOT_VERIFIED",
+                "email": email
+            }
+
+        # 5. Fetch role-specific profile
         profile = None
         if role == "teacher":
             profile = get_teacher_by_user_id(user_id)
         elif role == "student":
             profile = get_student_by_user_id(user_id)
         # admin → no profile needed
+
+        _reset_attempts()
 
         return {
             "success": True,

@@ -1,10 +1,6 @@
 import streamlit as st
-import base64
 import os
-
-def _b64(path):
-    with open(path, 'rb') as f:
-        return base64.b64encode(f.read()).decode()
+from src.ui.helpers import b64_encode
 
 def login_selection():
     """Registration cards — redirect to register_student / register_teacher pages."""
@@ -17,11 +13,11 @@ def login_selection():
     teacher_path = os.path.join("src", "assets", "teacher.png")
 
     try:
-        student_src = f"data:image/png;base64,{_b64(student_path)}"
+        student_src = f"data:image/png;base64,{b64_encode(student_path)}"
     except Exception:
         student_src = ""
     try:
-        teacher_src = f"data:image/png;base64,{_b64(teacher_path)}"
+        teacher_src = f"data:image/png;base64,{b64_encode(teacher_path)}"
     except Exception:
         teacher_src = ""
 

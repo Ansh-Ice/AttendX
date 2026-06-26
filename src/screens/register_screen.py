@@ -102,20 +102,25 @@ def register_screen():
             # Process face capture
             face_embedding = None
             if photo_source is not None:
-                img = np.array(Image.open(photo_source))
-
-                with st.spinner("Detecting face..."):
-                    encodings = get_face_embeddings(img)
-
-                if len(encodings) == 0:
-                    st.error("❌ No face detected. Please try again with better lighting.")
-                elif len(encodings) > 1:
-                    st.error("❌ Multiple faces detected. Please ensure only your face is visible.")
+                # Validate file size (max 5MB)
+                file_bytes = photo_source.getvalue()
+                if len(file_bytes) > 5 * 1024 * 1024:
+                    st.error("❌ Image too large. Maximum size is 5MB.")
                 else:
-                    face_embedding = encodings[0].tolist()
-                    st.success("✅ Face captured successfully!")
-                    # Store in session state so it persists across reruns
-                    st.session_state['reg_face_embedding'] = face_embedding
+                    img = np.array(Image.open(photo_source))
+
+                    with st.spinner("Detecting face..."):
+                        encodings = get_face_embeddings(img)
+
+                    if len(encodings) == 0:
+                        st.error("❌ No face detected. Please try again with better lighting.")
+                    elif len(encodings) > 1:
+                        st.error("❌ Multiple faces detected. Please ensure only your face is visible.")
+                    else:
+                        face_embedding = encodings[0].tolist()
+                        st.success("✅ Face captured successfully!")
+                        # Store in session state so it persists across reruns
+                        st.session_state['reg_face_embedding'] = face_embedding
 
             # Retrieve from session state if already captured
             if 'reg_face_embedding' in st.session_state and face_embedding is None:
@@ -181,32 +186,41 @@ def register_screen():
                     with st.spinner("Training classifiers with your biometric data..."):
                         train_classifier()
 
-                # Auto-login after registration
-                login_result = auth_login(email, password)
+                # Check if EmailJS is configured for verification
+                emailjs_configured = bool(st.secrets.get("EMAILJS_SERVICE_ID"))
 
-                if login_result["success"]:
+                if emailjs_configured:
+                    # Show verification message — do NOT auto-login
+                    st.info("📧 A verification email has been sent to your inbox. Please verify your email before logging in.")
                     # Clean up biometric session state
                     for key in ['reg_face_embedding', 'reg_voice_embedding']:
                         st.session_state.pop(key, None)
-
-                    cookie_manager = st.session_state.get('cookie_manager')
-                    if cookie_manager:
-                        cookie_manager.set("user_id", str(login_result['user_id']), key="reg_set_user_id")
-                        cookie_manager.set("role", login_result['role'], key="reg_set_role")
-                        cookie_manager.set("is_logged_in", "true", key="reg_set_logged_in")
-
-                    st.session_state['logged_in'] = True
-                    st.session_state['user_id'] = login_result['user_id']
-                    st.session_state['user_role'] = login_result['role']
-                    st.session_state['profile'] = login_result['profile']
-                    st.session_state['username'] = name
-                    st.session_state['page'] = 'student_dashboard' if is_student else 'teacher_dashboard'
-                    st.session_state['transition'] = True
-                    st.rerun()
                 else:
-                    st.info("Account created! Please sign in.")
-                    st.session_state['page'] = 'login'
-                    st.rerun()
+                    # No email verification configured — auto-login as before
+                    login_result = auth_login(email, password)
+
+                    if login_result["success"]:
+                        for key in ['reg_face_embedding', 'reg_voice_embedding']:
+                            st.session_state.pop(key, None)
+
+                        cookie_manager = st.session_state.get('cookie_manager')
+                        if cookie_manager:
+                            cookie_manager.set("user_id", str(login_result['user_id']), key="reg_set_user_id")
+                            cookie_manager.set("role", login_result['role'], key="reg_set_role")
+                            cookie_manager.set("is_logged_in", "true", key="reg_set_logged_in")
+
+                        st.session_state['logged_in'] = True
+                        st.session_state['user_id'] = login_result['user_id']
+                        st.session_state['user_role'] = login_result['role']
+                        st.session_state['profile'] = login_result['profile']
+                        st.session_state['username'] = name
+                        st.session_state['page'] = 'student_dashboard' if is_student else 'teacher_dashboard'
+                        st.session_state['transition'] = True
+                        st.rerun()
+                    else:
+                        st.info("Account created! Please sign in.")
+                        st.session_state['page'] = 'login'
+                        st.rerun()
             else:
                 st.error(result["message"])
 

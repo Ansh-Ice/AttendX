@@ -85,6 +85,28 @@ def main():
             if "join-code" in st.query_params:
                 del st.query_params["join-code"]
 
+    # Handle email verification via URL
+    verify_token_param = st.query_params.get("verify-token")
+    if verify_token_param:
+        from src.database.db import verify_and_commit_registration
+        result = verify_and_commit_registration(verify_token_param)
+        if result.get("success"):
+            st.session_state['verification_status'] = 'success'
+        else:
+            st.session_state['verification_status'] = 'failed'
+            st.session_state['verification_message'] = result.get('message', 'Verification failed.')
+        if "verify-token" in st.query_params:
+            del st.query_params["verify-token"]
+
+    # Show verification status banner if just verified
+    verification_status = st.session_state.pop('verification_status', None)
+    if verification_status == 'success':
+        st.success("✅ Email verified successfully! You can now log in.")
+        st.session_state['page'] = 'login'
+    elif verification_status == 'failed':
+        msg = st.session_state.pop('verification_message', 'Verification failed.')
+        st.error(f"❌ {msg}")
+
     page = st.session_state['page']
 
     if page == 'home':

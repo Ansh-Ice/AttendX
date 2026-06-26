@@ -1,147 +1,30 @@
 """
 student_screen.py — Premium Student Dashboard for AttendX.
+
+Features:
+    - My Subjects (view & leave)
+    - Join Subject via code
+    - Attendance Records
+    - Update Biometrics (face & voice re-registration)
 """
 
 import streamlit as st
-import base64
-import os
+import numpy as np
+from PIL import Image
 from src.ui.styles import apply_custom_css
+from src.ui.dashboard_styles import apply_dashboard_css
+from src.ui.helpers import get_logo_src, sanitize_html
 from src.components.footer import render_footer
 from src.database.db import (
     get_student_by_user_id,
     get_student_subjects,
     join_subject,
     leave_subject,
-    get_student_attendance
+    get_student_attendance,
+    update_student_embeddings
 )
-
-# ----------------------------
-# HELPERS
-# ----------------------------
-
-def _b64(path):
-    with open(path, 'rb') as f:
-        return base64.b64encode(f.read()).decode()
-
-def _get_logo_src():
-    logo_path = os.path.join("src", "assets", "logo_light.png")
-    if not os.path.exists(logo_path):
-        logo_path = os.path.join("src", "assets", "logo.png")
-    try:
-        return f"data:image/png;base64,{_b64(logo_path)}"
-    except Exception:
-        return ""
-
-# ----------------------------
-# DASHBOARD CSS
-# ----------------------------
-def _apply_dashboard_css():
-    st.markdown("""
-        <style>
-            /* Copying required CSS from teacher_screen.py */
-            .stTabs [data-baseweb="tab-list"] {
-                gap: 0;
-                width: 100%;
-                background-color: transparent;
-                border-bottom: 1px solid rgba(255,255,255,0.06);
-            }
-            .stTabs [data-baseweb="tab"] {
-                flex: 1;
-                display: flex;
-                justify-content: center;
-                height: 50px;
-                white-space: pre-wrap;
-                background-color: transparent;
-                border-radius: 4px 4px 0 0;
-                gap: 1px;
-                padding-top: 10px;
-                padding-bottom: 10px;
-                color: #999;
-                font-family: 'Poppins', sans-serif;
-                font-size: 0.95rem;
-                font-weight: 600;
-                transition: all 0.3s ease;
-            }
-            .stTabs [data-baseweb="tab"]:hover {
-                color: #D4AF37;
-            }
-            .stTabs [aria-selected="true"] {
-                color: #D4AF37 !important;
-                border-bottom: 2px solid #D4AF37 !important;
-                background-color: rgba(212, 175, 55, 0.05);
-            }
-            .stTabs [data-baseweb="tab-panel"] {
-                padding-top: 2rem;
-            }
-
-            .dash-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 0.6rem 0 1rem 0;
-                border-bottom: 1px solid rgba(255,255,255,0.06);
-                margin-bottom: 2rem;
-            }
-            .dash-header-logo img {
-                height: 48px;
-                object-fit: contain;
-            }
-            .dash-header-title {
-                font-family: 'Poppins', sans-serif;
-                font-size: 1.1rem;
-                font-weight: 600;
-                color: #f0f0f0;
-                letter-spacing: 0.03em;
-            }
-            .dash-header-title span {
-                color: #D4AF37;
-            }
-
-            .welcome-banner {
-                background: linear-gradient(135deg, rgba(212,175,55,0.08), rgba(212,175,55,0.02));
-                border: 1px solid rgba(212, 175, 55, 0.15);
-                border-radius: 16px;
-                padding: 2rem 2.5rem;
-                margin-bottom: 2rem;
-            }
-            .welcome-title {
-                font-family: 'Poppins', sans-serif;
-                font-size: 1.6rem;
-                font-weight: 700;
-                color: #f0f0f0;
-                margin-bottom: 0.3rem;
-            }
-            .welcome-title .gold {
-                background: linear-gradient(135deg, #D4AF37, #FFD700);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-            }
-            .welcome-subtitle {
-                font-size: 0.95rem;
-                color: #999;
-                line-height: 1.6;
-            }
-
-            .section-label {
-                font-family: 'Poppins', sans-serif;
-                font-size: 0.8rem;
-                font-weight: 700;
-                color: #D4AF37;
-                letter-spacing: 0.15em;
-                margin-bottom: 1.2rem;
-                display: flex;
-                align-items: center;
-                gap: 0.7rem;
-            }
-            .section-label::after {
-                content: '';
-                flex: 1;
-                height: 1px;
-                background: linear-gradient(90deg, rgba(212,175,55,0.3), transparent);
-            }
-        </style>
-    """, unsafe_allow_html=True)
+from src.pipelines.face_pipeline import get_face_embeddings, train_classifier
+from src.pipelines.voice_pipeline import get_voice_embedding
 
 
 # ----------------------------
@@ -149,8 +32,8 @@ def _apply_dashboard_css():
 # ----------------------------
 
 def render_dashboard_header():
-    logo_src = _get_logo_src()
-    username = st.session_state.get('username', 'Student')
+    logo_src = get_logo_src("light")
+    username = sanitize_html(st.session_state.get('username', 'Student'))
 
     col_logo, col_title, col_logout = st.columns([2, 5, 1.5])
 
@@ -185,12 +68,12 @@ def render_dashboard_header():
     st.markdown('<hr style="margin: 0.5rem 0 1.5rem 0; border: none; border-top: 1px solid rgba(255,255,255,0.06);">', unsafe_allow_html=True)
 
 def render_welcome_banner():
-    username = st.session_state.get('username', 'Student')
+    username = sanitize_html(st.session_state.get('username', 'Student'))
     st.markdown(f"""
         <div class="welcome-banner dash-animate">
             <div class="welcome-title">Welcome back, <span class="gold">{username}</span> 👋</div>
             <div class="welcome-subtitle">
-                View your enrolled subjects and track your attendance records.
+                View your enrolled subjects, track attendance records, and manage your biometric data.
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -202,7 +85,7 @@ def render_welcome_banner():
 
 @st.dialog("Leave Subject")
 def leave_subject_dialog(student_id: int, subject_id: int, subject_name: str):
-    st.warning(f"Are you sure you want to leave **{subject_name}**?")
+    st.warning(f"Are you sure you want to leave **{sanitize_html(subject_name)}**?")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -235,21 +118,108 @@ def join_subject_dialog(student_id: int):
                 st.error(res.get("message"))
 
 
+@st.dialog("Update Face Data")
+def update_face_dialog(student_id: int):
+    """Dialog to update face biometric data."""
+    st.markdown("### Re-register Your Face")
+    st.caption("Take a new photo to update your face embedding. Your attendance history will remain unchanged.")
+    
+    face_input_method = st.radio("Input Method", options=["Use Camera", "Upload Image"], horizontal=True, label_visibility="collapsed")
+    
+    photo_source = None
+    if face_input_method == "Use Camera":
+        photo_source = st.camera_input("Capture your face", key="update_face_capture", label_visibility="collapsed")
+    else:
+        photo_source = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"], key="update_face_upload", label_visibility="collapsed")
+    
+    if photo_source is not None:
+        # Validate file size (max 5MB)
+        if len(photo_source.getvalue()) > 5 * 1024 * 1024:
+            st.error("File too large. Maximum size is 5MB.")
+            return
+            
+        img = np.array(Image.open(photo_source))
+        
+        with st.spinner("Detecting face..."):
+            encodings = get_face_embeddings(img)
+        
+        if len(encodings) == 0:
+            st.error("❌ No face detected. Please try again with better lighting.")
+        elif len(encodings) > 1:
+            st.error("❌ Multiple faces detected. Please ensure only your face is visible.")
+        else:
+            face_embedding = encodings[0].tolist()
+            st.success("✅ Face detected successfully!")
+            
+            if st.button("Update Face Data", type="primary", width="stretch"):
+                with st.spinner("Updating face embedding..."):
+                    res = update_student_embeddings(
+                        student_id=student_id,
+                        face_embedding=face_embedding
+                    )
+                    if res.get("success"):
+                        # Retrain the classifier with the updated embedding
+                        train_classifier()
+                        st.success("✅ Face data updated successfully! Your attendance history is preserved.")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to update: {res.get('message')}")
+
+
+@st.dialog("Update Voice Data")
+def update_voice_dialog(student_id: int):
+    """Dialog to update voice biometric data."""
+    st.markdown("### Re-register Your Voice")
+    st.caption('Record a 5-10 second voice sample. Speak clearly: "My name is [your name] and I am updating my voice for AttendX."')
+    st.caption("Your attendance history will remain unchanged.")
+    
+    audio_source = st.audio_input("Record your voice", key="update_voice_capture", label_visibility="collapsed")
+    
+    if audio_source is not None:
+        audio_bytes = audio_source.getvalue()
+        
+        # Validate file size (max 10MB)
+        if len(audio_bytes) > 10 * 1024 * 1024:
+            st.error("Recording too large. Maximum size is 10MB.")
+            return
+        
+        with st.spinner("Processing voice..."):
+            voice_embedding = get_voice_embedding(audio_bytes)
+        
+        if voice_embedding is None:
+            st.error("❌ Could not process audio. Please try again with a clearer recording.")
+        else:
+            st.success("✅ Voice sample processed successfully!")
+            
+            if st.button("Update Voice Data", type="primary", width="stretch"):
+                with st.spinner("Updating voice embedding..."):
+                    res = update_student_embeddings(
+                        student_id=student_id,
+                        voice_embedding=voice_embedding
+                    )
+                    if res.get("success"):
+                        st.success("✅ Voice data updated successfully! Your attendance history is preserved.")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to update: {res.get('message')}")
+
+
 def section_my_subjects(student_id: int):
     st.markdown('<div class="section-label">MY SUBJECTS</div>', unsafe_allow_html=True)
     
     subjects = get_student_subjects(student_id)
     if not subjects:
-        st.info("You haven't joined any subjects yet.")
+        st.info("You haven't joined any subjects yet. Use the 'Join Subject' tab to enroll.")
     else:
         for sub in subjects:
-            with st.container():
-                st.markdown(f"**{sub.get('subject_code', '')} - {sub.get('name', '')} (Section {sub.get('section', 'N/A')})**")
-                
-                if st.button("Leave", key=f"leave_{sub['subject_id']}"):
-                    leave_subject_dialog(student_id, sub['subject_id'], sub.get('name', ''))
-                    
-                st.markdown("<hr style='margin:0.5rem 0; border: none; border-top: 1px solid rgba(255,255,255,0.06);'>", unsafe_allow_html=True)
+            with st.container(border=True):
+                c_info, c_leave = st.columns([5, 1])
+                with c_info:
+                    st.markdown(f"**{sub.get('subject_code', '')} - {sub.get('name', '')}**")
+                    st.caption(f"Section {sub.get('section', 'N/A')}")
+                with c_leave:
+                    if st.button("Leave", key=f"leave_{sub['subject_id']}", width="stretch"):
+                        leave_subject_dialog(student_id, sub['subject_id'], sub.get('name', ''))
 
 
 def section_join_subject(student_id: int):
@@ -265,7 +235,7 @@ def section_attendance_records(student_id: int):
     
     logs = get_student_attendance(student_id)
     if not logs:
-        st.info("No attendance records found.")
+        st.info("No attendance records found. Your records will appear here once your teachers take attendance.")
     else:
         st.dataframe(
             logs,
@@ -279,13 +249,57 @@ def section_attendance_records(student_id: int):
             width="stretch"
         )
 
+
+def section_update_biometrics(student_id: int, student_data: dict):
+    """Section for updating face and voice biometric data."""
+    st.markdown('<div class="section-label">UPDATE BIOMETRICS</div>', unsafe_allow_html=True)
+    
+    st.markdown("""
+        Update your face or voice biometric data below. This is useful if your initial registration
+        data has degraded or if you want to improve recognition accuracy.
+        
+        **Your attendance history will remain unchanged** — only the stored embeddings are replaced.
+    """)
+    
+    # Show current biometric status
+    has_face = bool(student_data.get('face_embedding'))
+    has_voice = bool(student_data.get('voice_embedding'))
+    
+    st.markdown(f"""
+        <div style="display: flex; gap: 2rem; margin: 1.5rem 0; flex-wrap: wrap;">
+            <div style="background: #141414; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.2rem 1.5rem; flex: 1; min-width: 200px;">
+                <div style="font-size: 0.75rem; color: #999; letter-spacing: 0.1em; margin-bottom: 0.5rem;">FACE DATA</div>
+                <div style="font-size: 1.1rem; color: {'#4ade80' if has_face else '#f87171'};">
+                    {'✅ Registered' if has_face else '❌ Not Registered'}
+                </div>
+            </div>
+            <div style="background: #141414; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.2rem 1.5rem; flex: 1; min-width: 200px;">
+                <div style="font-size: 0.75rem; color: #999; letter-spacing: 0.1em; margin-bottom: 0.5rem;">VOICE DATA</div>
+                <div style="font-size: 1.1rem; color: {'#4ade80' if has_voice else '#f87171'};">
+                    {'✅ Registered' if has_voice else '❌ Not Registered'}
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2, gap="large")
+    
+    with col1:
+        if st.button("📸 Update Face Data", width="stretch", type="primary"):
+            update_face_dialog(student_id)
+    
+    with col2:
+        if st.button("🎙️ Update Voice Data", width="stretch", type="primary"):
+            update_voice_dialog(student_id)
+
+
 # ----------------------------
 # MAIN SCREEN
 # ----------------------------
 
 def student_screen():
     apply_custom_css()
-    _apply_dashboard_css()
+    apply_dashboard_css()
 
     if not st.session_state.get('logged_in', False):
         st.warning("⚠️ Access denied. Please login first.")
@@ -311,7 +325,7 @@ def student_screen():
         from src.components.dialog_auto_enroll import auto_enroll_dialog
         auto_enroll_dialog(st.session_state['pending_join_code'], student_id)
 
-    tab1, tab2, tab3 = st.tabs(["📚 My Subjects", "➕ Join Subject", "📊 Attendance"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📚 My Subjects", "➕ Join Subject", "📊 Attendance", "🔄 Update Biometrics"])
     
     with tab1:
         section_my_subjects(student_id)
@@ -321,5 +335,8 @@ def student_screen():
         
     with tab3:
         section_attendance_records(student_id)
+    
+    with tab4:
+        section_update_biometrics(student_id, student_data)
 
     render_footer()

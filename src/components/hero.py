@@ -1,10 +1,6 @@
 import streamlit as st
-import base64
+from src.ui.helpers import b64_encode
 import os
-
-def _b64(path):
-    with open(path, 'rb') as f:
-        return base64.b64encode(f.read()).decode()
 
 def hero_section():
     col1, col2 = st.columns([1.1, 1])
@@ -27,14 +23,16 @@ def hero_section():
 
         btn1, btn2, _ = st.columns([1.2, 1, 1.5])
         with btn1:
-            st.markdown('<a class="btn-gold" href="#">Explore Features &nbsp;&rarr;</a>', unsafe_allow_html=True)
+            if st.button("Get Started  →", key="hero_get_started", type="primary"):
+                st.session_state['page'] = 'login'
+                st.rerun()
         with btn2:
-            st.markdown('<a class="btn-outline" href="#">Learn More</a>', unsafe_allow_html=True)
+            st.markdown('<a class="btn-outline" href="#about-this-website">Learn More</a>', unsafe_allow_html=True)
 
     with col2:
         icon_path = os.path.join("src", "assets", "logo_app_icon.png")
         try:
-            img_src = f"data:image/png;base64,{_b64(icon_path)}"
+            img_src = f"data:image/png;base64,{b64_encode(icon_path)}"
             st.markdown(f"""
                 <div class="hero-image-container animate-in">
                     <div class="hero-image-wrapper">

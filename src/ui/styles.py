@@ -654,6 +654,50 @@ def apply_custom_css():
             ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
             ::-webkit-scrollbar-thumb:hover { background: var(--gold); }
 
+            /* ===== DIALOG/MODAL STYLING ===== */
+            div[data-testid="stModal"] > div {
+                background-color: #141414 !important;
+                border: 1px solid rgba(255,255,255,0.08) !important;
+                border-radius: 16px !important;
+            }
+
+            /* Radio button styling */
+            div[data-testid="stRadio"] > div {
+                gap: 0.5rem;
+            }
+            div[data-testid="stRadio"] label {
+                background: var(--bg-card) !important;
+                border: 1px solid var(--border-subtle) !important;
+                border-radius: 8px !important;
+                padding: 0.5rem 1rem !important;
+                transition: all 0.2s ease !important;
+            }
+            div[data-testid="stRadio"] label:hover {
+                border-color: var(--gold) !important;
+            }
+
+            /* File uploader styling */
+            div[data-testid="stFileUploader"] > div {
+                background: var(--bg-card) !important;
+                border: 1px dashed var(--border-subtle) !important;
+                border-radius: 12px !important;
+            }
+            div[data-testid="stFileUploader"] > div:hover {
+                border-color: var(--gold) !important;
+            }
+
+            /* Dataframe styling */
+            div[data-testid="stDataFrame"] {
+                border-radius: 12px !important;
+                overflow: hidden;
+            }
+
+            /* Container border styling */
+            div[data-testid="stVerticalBlock"] > div[data-testid="stExpander"],
+            div.stContainer {
+                border-color: var(--border-subtle) !important;
+            }
+
             /* ===== RESPONSIVE ===== */
             @media (max-width: 768px) {
                 .navbar {
@@ -665,6 +709,12 @@ def apply_custom_css():
                     order: 3;
                     width: 100%;
                     justify-content: center;
+                }
+                .nav-links-inline {
+                    gap: 1.5rem;
+                }
+                a.nav-link {
+                    font-size: 0.85rem;
                 }
                 .hero-heading {
                     font-size: 2.2rem;
@@ -691,9 +741,21 @@ def apply_custom_css():
                 .auth-title {
                     font-size: 1.6rem;
                 }
-                .site-footer {
+                .site-footer, .common-footer {
                     flex-direction: column;
                     text-align: center;
+                }
+                .about-text-panel {
+                    padding: 1.5rem 1.2rem;
+                }
+                .feature-card {
+                    padding: 1.2rem 0.8rem;
+                }
+                .feature-title {
+                    font-size: 0.85rem;
+                }
+                .feature-desc {
+                    font-size: 0.75rem;
                 }
             }
 
@@ -713,7 +775,25 @@ def apply_custom_css():
                     height: 40px;
                 }
                 a.nav-link {
-                    font-size: 0.8rem;
+                    font-size: 0.75rem;
+                }
+                .nav-links-inline {
+                    gap: 1rem;
+                }
+                .login-card-desc {
+                    font-size: 0.82rem;
+                }
+                .auth-icon {
+                    width: 56px;
+                    height: 56px;
+                    line-height: 56px;
+                    font-size: 2.2rem;
+                }
+                .auth-title {
+                    font-size: 1.4rem;
+                }
+                .auth-subtitle {
+                    font-size: 0.85rem;
                 }
             }
 

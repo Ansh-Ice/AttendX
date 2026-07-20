@@ -103,18 +103,16 @@ def _validate_signup_fields(name: str, email: str, password: str, confirm_passwo
         return "Passwords do not match."
 
     return None
-
-
 # ----------------------------
 # EMAIL VERIFICATION (EmailJS)
 # ----------------------------
 
-def send_verification_email(email: str, name: str, token: str) -> dict:
+def send_otp_email(email: str, name: str, otp: str) -> dict:
     """
-    Send a verification email via EmailJS REST API.
+    Send a 6-digit OTP verification email via EmailJS REST API.
     
-    Requires EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, and EMAILJS_PUBLIC_KEY
-    to be set in .streamlit/secrets.toml.
+    Requires EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, 
+    and EMAILJS_PRIVATE_KEY to be set in .streamlit/secrets.toml.
     """
     import requests
 
@@ -123,13 +121,10 @@ def send_verification_email(email: str, name: str, token: str) -> dict:
         template_id = st.secrets.get("EMAILJS_TEMPLATE_ID")
         public_key = st.secrets.get("EMAILJS_PUBLIC_KEY")
         private_key = st.secrets.get("EMAILJS_PRIVATE_KEY")
-        base_url = st.secrets.get("APP_BASE_URL", "https://attendx-046.streamlit.app")
 
         if not all([service_id, template_id, public_key, private_key]):
             # EmailJS not configured — silently skip
             return {"success": True, "message": "Verification skipped (EmailJS not configured)."}
-
-        verification_link = f"{base_url}/?verify-token={token}"
 
         payload = {
             "service_id": service_id,
@@ -139,7 +134,7 @@ def send_verification_email(email: str, name: str, token: str) -> dict:
             "template_params": {
                 "to_email": email,
                 "to_name": name,
-                "verification_link": verification_link,
+                "otp": otp,
                 "app_name": "AttendX"
             }
         }
@@ -160,181 +155,89 @@ def send_verification_email(email: str, name: str, token: str) -> dict:
         return {"success": False, "message": f"Email service error: {str(e)}"}
 
 
-def resend_verification(email: str) -> dict:
-    """Resend verification email with a new token."""
-    user = get_user_by_email(email)
-    if not user:
-        return {"success": False, "message": "User not found."}
-
-    if user.get('is_verified'):
-        return {"success": False, "message": "Email is already verified."}
-
-    token = generate_verification_token()
-    update_result = update_verification_token(user['user_id'], token)
-    if not update_result.get('success'):
-        return {"success": False, "message": "Failed to generate new token."}
-
-    name = user.get('email', '').split('@')[0]  # Fallback name
-    return send_verification_email(email, name, token)
-
-
 # ----------------------------
 # SIGNUP
 # ----------------------------
 
-def signup(name: str, email: str, password: str, confirm_password: str, role: str) -> dict:
-    """
-    Register a new user (student or teacher).
-
-    Returns:
-        {
-            "success": True/False,
-            "message": "...",
-            "data": { profile dict } (on success)
-        }
-    """
-    # 1. Validate all fields
+def validate_signup(name: str, email: str, password: str, confirm_password: str) -> dict:
+    """Validates signup fields and checks if user exists. Used for both teachers and students."""
     validation_err = _validate_signup_fields(name, email, password, confirm_password)
     if validation_err:
         return {"success": False, "message": validation_err}
 
-    # 2. Normalize
     email = email.strip().lower()
-    name = name.strip()
-
-    # 3. Check if user already exists
     user = get_user_by_email(email)
     if user:
         return {"success": False, "message": "User already exists with this email."}
 
-    # 4. Generate token and save to pending_registrations
+    return {"success": True}
+
+def commit_signup(name: str, email: str, password: str, role: str) -> dict:
+    """Actually insert the validated user into the database."""
+    email = email.strip().lower()
+    name = name.strip()
+    
     try:
-        token = generate_verification_token()
-        
-        from src.database.db import create_pending_registration
-        result = create_pending_registration(
-            token=token,
-            name=name,
-            email=email,
-            password=password,
-            role=role
-        )
+        if role == "teacher":
+            result = create_teacher(name, email, password)
+            profile_key = "teacher"
+        elif role == "student":
+            result = create_student(name, email, password)
+            profile_key = "student"
+        else:
+            return {"success": False, "message": f"Invalid role: {role}"}
 
         if not result["success"]:
             return {"success": False, "message": result.get("message", "Registration failed.")}
+            
 
-        # 5. Send verification email
-        email_result = send_verification_email(email, name, token)
-        
-        if email_result.get("success"):
-            return {
-                "success": True,
-                "message": f"{role.capitalize()} account created! Please check your email to verify and complete registration.",
-                "data": {}
-            }
-        else:
-            return {
-                "success": False,
-                "message": f"Registration saved, but failed to send verification email: {email_result.get('message')}"
-            }
+        return {
+            "success": True,
+            "message": f"{role.capitalize()} account created successfully!",
+            "data": result.get(profile_key, {})
+        }
 
     except Exception as e:
-        return {"success": False, "message": f"Error: {str(e)}"}
+        return {"success": False, "message": f"Database error: {str(e)}"}
 
 
 # ----------------------------
 # STUDENT SIGNUP WITH BIOMETRICS
 # ----------------------------
 
-def signup_student_with_biometrics(
-    name: str,
-    email: str,
-    password: str,
-    confirm_password: str,
-    face_embedding: list,
-    voice_embedding: list
-) -> dict:
-    """
-    Register a student with face and voice biometric data.
 
-    Flow:
-        1. Validate form fields
-        2. Check if face already exists in database
-        3. Create user + student record
-        4. Store face & voice embeddings
-        5. Send verification email
-
-    Returns:
-        {
-            "success": True/False,
-            "message": "...",
-            "data": { student profile dict }
-        }
-    """
-    # 1. Validate form fields
-    validation_err = _validate_signup_fields(name, email, password, confirm_password)
-    if validation_err:
-        return {"success": False, "message": validation_err}
-
-    # 2. Validate biometric data is present
-    if not face_embedding:
-        return {"success": False, "message": "Face data is required. Please capture your photo."}
-    if not voice_embedding:
-        return {"success": False, "message": "Voice data is required. Please record your audio."}
-
-    # 3. Normalize inputs
+def commit_student_signup(name: str, email: str, password: str, face_embedding: list, voice_embedding: list) -> dict:
+    """Actually insert the validated student with biometrics into the database."""
     email = email.strip().lower()
     name = name.strip()
-
-    # 4. Check if this face is already registered
+    
     try:
-        face_check = check_face_exists(face_embedding)
-        if face_check["exists"]:
-            existing = face_check["student"]
-            return {
-                "success": False,
-                "message": f"This face is already registered to '{existing.get('name', 'another student')}'."
-            }
-    except Exception as e:
-        return {"success": False, "message": f"Face verification error: {str(e)}"}
+        result = create_student(name, email, password)
+        if not result["success"]:
+            return {"success": False, "message": result.get("message", "Registration failed.")}
 
-    # 5. Check if user already exists
-    user = get_user_by_email(email)
-    if user:
-        return {"success": False, "message": "User already exists with this email."}
+        student_data = result["student"]
+        student_id = student_data["student_id"]
 
-    # 6. Save to pending_registrations
-    try:
-        token = generate_verification_token()
-        
-        from src.database.db import create_pending_registration
-        result = create_pending_registration(
-            token=token,
-            name=name,
-            email=email,
-            password=password,
-            role="student",
+        embed_result = update_student_embeddings(
+            student_id=student_id,
             face_embedding=face_embedding,
             voice_embedding=voice_embedding
         )
 
-        if not result["success"]:
-            return {"success": False, "message": result.get("message", "Registration failed.")}
-
-        # 7. Send verification email
-        email_result = send_verification_email(email, name, token)
-        
-        if email_result.get("success"):
+        if not embed_result["success"]:
             return {
                 "success": True,
-                "message": "Student registration saved! Check your email to verify and complete registration.",
-                "data": {}
+                "message": "Account created, but biometric data could not be saved. Please contact admin.",
+                "data": student_data
             }
-        else:
-            return {
-                "success": False,
-                "message": f"Registration saved, but failed to send verification email: {email_result.get('message')}"
-            }
+            
+
+        return {
+            "success": True,
+            "message": "Student account created successfully!",
+            "data": embed_result["student"]
+        }
 
     except Exception as e:
         return {"success": False, "message": f"Error: {str(e)}"}

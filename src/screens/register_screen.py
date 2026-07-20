@@ -3,10 +3,12 @@ import numpy as np
 from PIL import Image
 
 from src.ui.styles import apply_custom_css
-from src.database.auth import signup, signup_student_with_biometrics, login as auth_login
-from src.pipelines.face_pipeline import get_face_embeddings, train_classifier
+from src.database.auth import validate_signup, send_otp_email, login as auth_login
+from src.pipelines.face_pipeline import get_face_embeddings
 from src.pipelines.voice_pipeline import get_voice_embedding
 from src.components.footer import render_footer
+import random
+from src.components.dialog_otp_verify import otp_verify_dialog
 
 
 def register_screen():
@@ -160,69 +162,54 @@ def register_screen():
 
         # ---- SUBMIT ----
         if st.button(f"Create {role_label} Account  →", key="btn_register", width="stretch", type="primary"):
-            with st.spinner("Creating your account..."):
-                if is_student:
-                    # Get embeddings from session state (in case they were captured before this rerun)
-                    final_face = face_embedding or st.session_state.get('reg_face_embedding')
-                    final_voice = voice_embedding or st.session_state.get('reg_voice_embedding')
-
-                    result = signup_student_with_biometrics(
-                        name=name,
-                        email=email,
-                        password=password,
-                        confirm_password=confirm_password,
-                        face_embedding=final_face,
-                        voice_embedding=final_voice
-                    )
-                else:
-                    # Teacher — no biometrics needed
-                    result = signup(name, email, password, confirm_password, role)
-
-            if result["success"]:
-                st.success(result["message"])
-
-                # Retrain face classifier with the new student's data
-                if is_student:
-                    with st.spinner("Training classifiers with your biometric data..."):
-                        train_classifier()
-
-                # Check if EmailJS is configured for verification
-                emailjs_configured = bool(st.secrets.get("EMAILJS_SERVICE_ID"))
-
-                if emailjs_configured:
-                    # Show verification message — do NOT auto-login
-                    st.info("📧 A verification email has been sent to your inbox. Please verify your email before logging in.")
-                    # Clean up biometric session state
-                    for key in ['reg_face_embedding', 'reg_voice_embedding']:
-                        st.session_state.pop(key, None)
-                else:
-                    # No email verification configured — auto-login as before
-                    login_result = auth_login(email, password)
-
-                    if login_result["success"]:
-                        for key in ['reg_face_embedding', 'reg_voice_embedding']:
-                            st.session_state.pop(key, None)
-
-                        cookie_manager = st.session_state.get('cookie_manager')
-                        if cookie_manager:
-                            cookie_manager.set("user_id", str(login_result['user_id']), key="reg_set_user_id")
-                            cookie_manager.set("role", login_result['role'], key="reg_set_role")
-                            cookie_manager.set("is_logged_in", "true", key="reg_set_logged_in")
-
-                        st.session_state['logged_in'] = True
-                        st.session_state['user_id'] = login_result['user_id']
-                        st.session_state['user_role'] = login_result['role']
-                        st.session_state['profile'] = login_result['profile']
-                        st.session_state['username'] = name
-                        st.session_state['page'] = 'student_dashboard' if is_student else 'teacher_dashboard'
-                        st.session_state['transition'] = True
+            # 1. First, validate all fields without touching the DB
+            with st.spinner("Validating details..."):
+                validation_result = validate_signup(name, email, password, confirm_password)
+                
+                if validation_result["success"]:
+                    # Biometric check for student
+                    final_face = None
+                    final_voice = None
+                    if is_student:
+                        final_face = face_embedding or st.session_state.get('reg_face_embedding')
+                        final_voice = voice_embedding or st.session_state.get('reg_voice_embedding')
+                        
+                        if not final_face:
+                            st.error("Face data is required. Please capture your photo.")
+                            validation_result["success"] = False
+                        elif not final_voice:
+                            st.error("Voice data is required. Please record your audio.")
+                            validation_result["success"] = False
+                            
+                if validation_result["success"]:
+                    # Generate OTP
+                    otp = str(random.randint(100000, 999999))
+                    
+                    # Store all data in session state for the dialog
+                    st.session_state['pending_registration_data'] = {
+                        "name": name,
+                        "email": email.strip().lower(),
+                        "password": password,
+                        "role": role,
+                        "face_embedding": final_face if is_student else None,
+                        "voice_embedding": final_voice if is_student else None,
+                        "otp": otp
+                    }
+                    
+                    # Send OTP email
+                    email_result = send_otp_email(email.strip().lower(), name.strip(), otp)
+                    
+                    if email_result.get("success"):
+                        st.session_state['show_otp_dialog'] = True
                         st.rerun()
                     else:
-                        st.info("Account created! Please sign in.")
-                        st.session_state['page'] = 'login'
-                        st.rerun()
-            else:
-                st.error(result["message"])
+                        st.error(f"Failed to send OTP email: {email_result.get('message')}")
+                else:
+                    st.error(validation_result.get("message", "Validation failed."))
+
+        # Show OTP Dialog if triggered
+        if st.session_state.get('show_otp_dialog', False):
+            otp_verify_dialog()
 
         # Link to login
         st.write("")

@@ -1,6 +1,6 @@
 import streamlit as st
 from src.ui.styles import apply_custom_css
-from src.database.auth import login, resend_verification
+from src.database.auth import login
 from src.components.footer import render_footer
 
 
@@ -81,16 +81,7 @@ def login_screen():
                     st.session_state['transition'] = True
                     st.rerun()
                 elif result.get("message") == "EMAIL_NOT_VERIFIED":
-                    # Show verification required UI
-                    st.warning("📧 Your email address has not been verified yet.")
-                    st.caption("Please check your inbox for the verification link. If you didn't receive it, click below to resend.")
-                    if st.button("🔄 Resend Verification Email", width="stretch"):
-                        with st.spinner("Sending verification email..."):
-                            resend_result = resend_verification(result.get("email", email))
-                        if resend_result.get("success"):
-                            st.success("✅ Verification email sent! Please check your inbox.")
-                        else:
-                            st.error(resend_result.get("message", "Failed to send email."))
+                    st.error("📧 Your account is incomplete. Please register again to verify your email via OTP.")
                 else:
                     st.error(result['message'])
 

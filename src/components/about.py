@@ -6,7 +6,7 @@ def about_section():
 
     with left:
         st.markdown("""
-            <div class="about-text-panel animate-in">
+            <div id="about-this-website" class="about-text-panel animate-in">
                 <div class="about-label">ABOUT THIS WEBSITE</div>
                 <p>
                     AttendX is designed to help educational institutions and organizations

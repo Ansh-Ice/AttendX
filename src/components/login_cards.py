@@ -5,7 +5,7 @@ from src.ui.helpers import b64_encode
 def login_selection():
     """Registration cards — redirect to register_student / register_teacher pages."""
     st.markdown("""
-        <div class="login-section-title">REGISTER TO CONTINUE</div>
+        <div id="register-to-continue" class="login-section-title">REGISTER TO CONTINUE</div>
     """, unsafe_allow_html=True)
 
     # Load illustrations

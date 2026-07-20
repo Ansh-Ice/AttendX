@@ -7,7 +7,7 @@ def hero_section():
 
     with col1:
         st.markdown("""
-            <div style="padding-top: 2rem;" class="animate-in">
+            <div id="smart-attendance" style="padding-top: 2rem;" class="animate-in">
                 <div class="hero-badge">AI-POWERED &nbsp;•&nbsp; SMART &nbsp;•&nbsp; SECURE</div>
                 <div class="hero-heading">
                     Smart Attendance.<br>

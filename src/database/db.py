@@ -274,9 +274,9 @@ def get_subject_class_count(subject_id: int) -> int:
         res = supabase.table('attendance_logs').select('timestamp').eq('subject_id', subject_id).execute()
         if not res.data:
             return 0
-        # Count unique days
-        days = set([log['timestamp'][:10] for log in res.data if log.get('timestamp')])
-        return len(days)
+        # Count unique sessions (timestamps)
+        sessions = set([log['timestamp'] for log in res.data if log.get('timestamp')])
+        return len(sessions)
     except Exception as e:
         print(f"Error fetching class count: {e}")
         return 0
@@ -295,17 +295,9 @@ def check_duplicate_attendance(subject_id: int, date_str: str) -> bool:
 
 
 def mark_attendance(subject_id: int, results: dict) -> dict:
-    """Mark attendance for a subject. Prevents duplicate attendance for the same day."""
+    """Mark attendance for a subject. Multiple sessions per day are allowed."""
     try:
         timestamp = datetime.now(timezone.utc).isoformat()
-        today_str = timestamp[:10]
-
-        # Check for duplicate attendance on the same day
-        if check_duplicate_attendance(subject_id, today_str):
-            return {
-                "success": False,
-                "message": "Attendance has already been marked for this subject today. Duplicate entries are not allowed."
-            }
 
         records = []
         for student_id, is_present in results.items():
